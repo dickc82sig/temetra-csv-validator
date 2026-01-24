@@ -123,7 +123,7 @@ export default function AdminDashboard() {
 
       if (uploadsData && uploadsData.length > 0) {
         // Get project names for the uploads
-        const projectIds = [...new Set(uploadsData.map(u => u.project_id))];
+        const projectIds = Array.from(new Set(uploadsData.map(u => u.project_id)));
         const { data: projectsData } = await supabase
           .from('projects')
           .select('id, name')
