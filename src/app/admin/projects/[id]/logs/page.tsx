@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -47,7 +47,7 @@ interface Project {
   slug: string;
 }
 
-export default function ProjectLogsPage() {
+function ProjectLogsContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.id as string;
@@ -534,5 +534,22 @@ export default function ProjectLogsPage() {
         <p>&copy; {new Date().getFullYear()} Vanzora, LLC. All rights reserved.</p>
       </footer>
     </div>
+  );
+}
+
+export default function ProjectLogsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50">
+        <Header isLoggedIn={true} userName="Admin" userRole="admin" />
+        <main className="max-w-6xl mx-auto px-4 py-8">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-temetra-blue-600" />
+          </div>
+        </main>
+      </div>
+    }>
+      <ProjectLogsContent />
+    </Suspense>
   );
 }

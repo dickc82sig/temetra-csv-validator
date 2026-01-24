@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -36,7 +36,7 @@ interface UploadLog {
   validation_summary: string | null;
 }
 
-export default function AdminLogsPage() {
+function AdminLogsContent() {
   const searchParams = useSearchParams();
   const initialStatus = searchParams.get('status') || 'all';
 
@@ -296,5 +296,22 @@ export default function AdminLogsPage() {
         <p>&copy; {new Date().getFullYear()} Vanzora, LLC. All rights reserved.</p>
       </footer>
     </div>
+  );
+}
+
+export default function AdminLogsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50">
+        <Header isLoggedIn={true} userName="Admin" userRole="admin" />
+        <main className="max-w-7xl mx-auto px-4 py-8">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-temetra-blue-600" />
+          </div>
+        </main>
+      </div>
+    }>
+      <AdminLogsContent />
+    </Suspense>
   );
 }
