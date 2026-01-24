@@ -370,9 +370,10 @@ export const VALID_COLLECTION_METHODS = [
 ];
 
 /**
- * ValidationRule type for use with project-specific rules
+ * ProjectValidationRule type for use with project-specific rules
+ * (Simplified format, different from the main ValidationRule in types/index.ts)
  */
-export interface ValidationRule {
+export interface ProjectValidationRule {
   columnName: string;
   displayName: string;
   required: boolean;
@@ -388,7 +389,7 @@ export interface ValidationRule {
  * Default validation rules for new projects
  * Simplified format for project-specific customization
  */
-export const DEFAULT_VALIDATION_RULES: ValidationRule[] = NEW_NETWORK_UPLOAD_COLUMNS.map(col => ({
+export const DEFAULT_VALIDATION_RULES: ProjectValidationRule[] = NEW_NETWORK_UPLOAD_COLUMNS.map(col => ({
   columnName: col.name,
   displayName: col.name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
   required: col.required,

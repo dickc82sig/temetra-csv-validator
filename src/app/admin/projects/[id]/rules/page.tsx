@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
-import { DEFAULT_VALIDATION_RULES, ValidationRule } from '@/lib/validation-rules';
+import { DEFAULT_VALIDATION_RULES, ProjectValidationRule } from '@/lib/validation-rules';
 
 interface Project {
   id: string;
@@ -35,7 +35,7 @@ export default function ProjectRulesPage() {
   const projectId = params.id as string;
 
   const [project, setProject] = useState<Project | null>(null);
-  const [rules, setRules] = useState<ValidationRule[]>([]);
+  const [rules, setRules] = useState<ProjectValidationRule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -84,7 +84,7 @@ export default function ProjectRulesPage() {
   }, [projectId]);
 
   // Update a rule
-  const updateRule = (columnName: string, updates: Partial<ValidationRule>) => {
+  const updateRule = (columnName: string, updates: Partial<ProjectValidationRule>) => {
     setRules(prev => prev.map(rule =>
       rule.columnName === columnName ? { ...rule, ...updates } : rule
     ));
@@ -92,7 +92,7 @@ export default function ProjectRulesPage() {
 
   // Add a new rule
   const addRule = () => {
-    const newRule: ValidationRule = {
+    const newRule: ProjectValidationRule = {
       columnName: `Column_${rules.length + 1}`,
       displayName: `New Column ${rules.length + 1}`,
       required: false,
@@ -313,7 +313,7 @@ export default function ProjectRulesPage() {
                   <td className="px-4 py-3">
                     <select
                       value={rule.dataType}
-                      onChange={e => updateRule(rule.columnName, { dataType: e.target.value as ValidationRule['dataType'] })}
+                      onChange={e => updateRule(rule.columnName, { dataType: e.target.value as ProjectValidationRule['dataType'] })}
                       className={`px-2 py-1 text-xs rounded border-0 focus:ring-2 focus:ring-temetra-blue-500 ${getDataTypeColor(rule.dataType)}`}
                     >
                       <option value="string">String</option>
