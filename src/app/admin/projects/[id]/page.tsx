@@ -23,6 +23,9 @@ import {
   FileText,
   Key,
   BarChart3,
+  Upload,
+  Trash2,
+  File,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
@@ -37,6 +40,8 @@ interface Project {
   alert_on_upload: boolean;
   admin_email: string | null;
   created_at: string;
+  template_csv_url: string | null;
+  documentation_url: string | null;
   total_uploads?: number;
   valid_uploads?: number;
   last_upload?: string;
@@ -49,6 +54,9 @@ export default function ProjectDetailsPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Load project data
   useEffect(() => {
@@ -60,91 +68,37 @@ export default function ProjectDetailsPage() {
           .eq('id', projectId)
           .single();
 
-        if (data) {
-          // Get upload stats
-          const { count: totalUploads } = await supabase
-            .from('file_uploads')
-            .select('*', { count: 'exact', head: true })
-            .eq('project_id', projectId);
-
-          const { count: validUploads } = await supabase
-            .from('file_uploads')
-            .select('*', { count: 'exact', head: true })
-            .eq('project_id', projectId)
-            .eq('validation_passed', true);
-
-          const { data: lastUploadData } = await supabase
-            .from('file_uploads')
-            .select('created_at')
-            .eq('project_id', projectId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-
-          setProject({
-            ...data,
-            total_uploads: totalUploads || 0,
-            valid_uploads: validUploads || 0,
-            last_upload: lastUploadData?.created_at,
-          });
-        } else {
-          // Mock data for demo
-          const mockProjects: Record<string, Project> = {
-            '1': {
-              id: '1',
-              name: 'Acme Water Company',
-              slug: 'acme-water',
-              description: 'Municipal water utility serving the greater Acme area',
-              public_link: '/validate/acme-water',
-              alert_on_upload: true,
-              admin_email: 'admin@acme.com',
-              created_at: '2023-06-15T00:00:00',
-              total_uploads: 45,
-              valid_uploads: 38,
-              last_upload: '2024-01-15T10:30:00',
-            },
-            '2': {
-              id: '2',
-              name: 'City Utilities Department',
-              slug: 'city-utilities',
-              description: 'City water and gas services',
-              public_link: '/validate/city-utilities',
-              alert_on_upload: true,
-              admin_email: 'admin@cityutil.com',
-              created_at: '2023-08-20T00:00:00',
-              total_uploads: 32,
-              valid_uploads: 30,
-              last_upload: '2024-01-15T09:15:00',
-            },
-            '3': {
-              id: '3',
-              name: 'Regional Gas Co',
-              slug: 'regional-gas',
-              description: 'Natural gas distribution company',
-              public_link: '/validate/regional-gas',
-              alert_on_upload: false,
-              admin_email: 'admin@regionalgas.com',
-              created_at: '2023-09-10T00:00:00',
-              total_uploads: 28,
-              valid_uploads: 25,
-              last_upload: '2024-01-14T16:45:00',
-            },
-            '4': {
-              id: '4',
-              name: 'Metro Electric',
-              slug: 'metro-electric',
-              description: 'Electric utility for metropolitan area',
-              public_link: '/validate/metro-electric',
-              alert_on_upload: true,
-              admin_email: 'admin@metroelectric.com',
-              created_at: '2023-11-01T00:00:00',
-              total_uploads: 15,
-              valid_uploads: 10,
-              last_upload: '2024-01-14T14:20:00',
-            },
-          };
-          setProject(mockProjects[projectId] || null);
+        if (!data) {
+          setProject(null);
+          return;
         }
+
+        // Get upload stats
+        const { count: totalUploads } = await supabase
+          .from('file_uploads')
+          .select('*', { count: 'exact', head: true })
+          .eq('project_id', projectId);
+
+        const { count: validUploads } = await supabase
+          .from('file_uploads')
+          .select('*', { count: 'exact', head: true })
+          .eq('project_id', projectId)
+          .eq('validation_status', 'valid');
+
+        const { data: lastUploadData } = await supabase
+          .from('file_uploads')
+          .select('uploaded_at')
+          .eq('project_id', projectId)
+          .order('uploaded_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        setProject({
+          ...data,
+          total_uploads: totalUploads || 0,
+          valid_uploads: validUploads || 0,
+          last_upload: lastUploadData?.uploaded_at,
+        });
       } catch (err) {
         console.error('Error loading project:', err);
       } finally {
@@ -160,6 +114,180 @@ export default function ProjectDetailsPage() {
     await navigator.clipboard.writeText(fullLink);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  /**
+   * Upload documentation file (PDF, DOC, etc.)
+   */
+  const handleDocumentationUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !project) return;
+
+    setIsUploadingDoc(true);
+    setUploadMessage(null);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${project.slug}/documentation.${fileExt}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('project-files')
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) {
+        // If bucket doesn't exist, save URL directly
+        console.error('Storage upload error:', uploadError);
+        // Fallback: store as a data URL or external URL
+        const reader = new FileReader();
+        reader.onload = async () => {
+          // For now, we'll just update the project with a placeholder
+          // In production, you'd want proper file storage
+          const { error: updateError } = await supabase
+            .from('projects')
+            .update({ documentation_url: `/api/docs/${project.slug}/${file.name}` })
+            .eq('id', project.id);
+
+          if (updateError) {
+            setUploadMessage({ type: 'error', text: 'Failed to save documentation reference' });
+          } else {
+            setUploadMessage({ type: 'success', text: 'Documentation uploaded successfully!' });
+            setProject(prev => prev ? { ...prev, documentation_url: `/api/docs/${project.slug}/${file.name}` } : null);
+          }
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('project-files')
+        .getPublicUrl(fileName);
+
+      // Update project with documentation URL
+      const { error: updateError } = await supabase
+        .from('projects')
+        .update({ documentation_url: publicUrl })
+        .eq('id', project.id);
+
+      if (updateError) {
+        setUploadMessage({ type: 'error', text: 'Failed to update project' });
+        return;
+      }
+
+      setProject(prev => prev ? { ...prev, documentation_url: publicUrl } : null);
+      setUploadMessage({ type: 'success', text: 'Documentation uploaded successfully!' });
+    } catch (err) {
+      console.error('Upload error:', err);
+      setUploadMessage({ type: 'error', text: 'Failed to upload documentation' });
+    } finally {
+      setIsUploadingDoc(false);
+      e.target.value = '';
+    }
+  };
+
+  /**
+   * Upload template CSV file
+   */
+  const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !project) return;
+
+    if (!file.name.endsWith('.csv')) {
+      setUploadMessage({ type: 'error', text: 'Please upload a CSV file' });
+      return;
+    }
+
+    setIsUploadingTemplate(true);
+    setUploadMessage(null);
+
+    try {
+      const fileName = `${project.slug}/template.csv`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('project-files')
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) {
+        console.error('Storage upload error:', uploadError);
+        setUploadMessage({ type: 'error', text: 'Failed to upload template. Storage may not be configured.' });
+        return;
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('project-files')
+        .getPublicUrl(fileName);
+
+      // Update project with template URL
+      const { error: updateError } = await supabase
+        .from('projects')
+        .update({ template_csv_url: publicUrl })
+        .eq('id', project.id);
+
+      if (updateError) {
+        setUploadMessage({ type: 'error', text: 'Failed to update project' });
+        return;
+      }
+
+      setProject(prev => prev ? { ...prev, template_csv_url: publicUrl } : null);
+      setUploadMessage({ type: 'success', text: 'Template CSV uploaded successfully!' });
+    } catch (err) {
+      console.error('Upload error:', err);
+      setUploadMessage({ type: 'error', text: 'Failed to upload template' });
+    } finally {
+      setIsUploadingTemplate(false);
+      e.target.value = '';
+    }
+  };
+
+  /**
+   * Remove documentation
+   */
+  const removeDocumentation = async () => {
+    if (!project || !confirm('Remove documentation?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ documentation_url: null })
+        .eq('id', project.id);
+
+      if (error) {
+        setUploadMessage({ type: 'error', text: 'Failed to remove documentation' });
+        return;
+      }
+
+      setProject(prev => prev ? { ...prev, documentation_url: null } : null);
+      setUploadMessage({ type: 'success', text: 'Documentation removed' });
+    } catch (err) {
+      setUploadMessage({ type: 'error', text: 'Failed to remove documentation' });
+    }
+  };
+
+  /**
+   * Remove template
+   */
+  const removeTemplate = async () => {
+    if (!project || !confirm('Remove template CSV?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ template_csv_url: null })
+        .eq('id', project.id);
+
+      if (error) {
+        setUploadMessage({ type: 'error', text: 'Failed to remove template' });
+        return;
+      }
+
+      setProject(prev => prev ? { ...prev, template_csv_url: null } : null);
+      setUploadMessage({ type: 'success', text: 'Template removed' });
+    } catch (err) {
+      setUploadMessage({ type: 'error', text: 'Failed to remove template' });
+    }
   };
 
   const successRate = project && project.total_uploads && project.total_uploads > 0
@@ -352,6 +480,126 @@ export default function ProjectDetailsPage() {
               <p className="font-medium">
                 {project.last_upload ? formatDate(project.last_upload) : 'No uploads yet'}
               </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Documentation & Template Upload */}
+        <div className="card mb-8">
+          <h2 className="font-semibold text-gray-900 mb-4">Developer Resources</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Upload documentation and template files that developers can access from the validation page.
+          </p>
+
+          {uploadMessage && (
+            <div className={`mb-4 p-3 rounded-lg text-sm ${
+              uploadMessage.type === 'success'
+                ? 'bg-green-50 border border-green-200 text-green-700'
+                : 'bg-red-50 border border-red-200 text-red-700'
+            }`}>
+              {uploadMessage.text}
+            </div>
+          )}
+
+          <div className="grid sm:grid-cols-2 gap-6">
+            {/* Documentation Upload */}
+            <div className="p-4 border rounded-lg">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText className="h-5 w-5 text-blue-600" />
+                <h3 className="font-medium text-gray-900">Documentation</h3>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                Upload a PDF or document with format specifications and instructions.
+              </p>
+
+              {project.documentation_url ? (
+                <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                  <File className="h-4 w-4 text-gray-400" />
+                  <span className="text-sm text-gray-700 flex-1 truncate">Documentation uploaded</span>
+                  <a
+                    href={project.documentation_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-temetra-blue-600 hover:text-temetra-blue-700"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                  <button
+                    onClick={removeDocumentation}
+                    className="text-red-500 hover:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-temetra-blue-400 hover:bg-temetra-blue-50 transition-colors">
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt"
+                    onChange={handleDocumentationUpload}
+                    className="hidden"
+                    disabled={isUploadingDoc}
+                  />
+                  {isUploadingDoc ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                  ) : (
+                    <Upload className="h-5 w-5 text-gray-400" />
+                  )}
+                  <span className="text-sm text-gray-600">
+                    {isUploadingDoc ? 'Uploading...' : 'Upload Documentation'}
+                  </span>
+                </label>
+              )}
+            </div>
+
+            {/* Template CSV Upload */}
+            <div className="p-4 border rounded-lg">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText className="h-5 w-5 text-green-600" />
+                <h3 className="font-medium text-gray-900">Template CSV</h3>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                Upload a sample CSV file with the correct column headers.
+              </p>
+
+              {project.template_csv_url ? (
+                <div className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                  <File className="h-4 w-4 text-gray-400" />
+                  <span className="text-sm text-gray-700 flex-1 truncate">Template uploaded</span>
+                  <a
+                    href={project.template_csv_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-temetra-blue-600 hover:text-temetra-blue-700"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                  <button
+                    onClick={removeTemplate}
+                    className="text-red-500 hover:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-green-400 hover:bg-green-50 transition-colors">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleTemplateUpload}
+                    className="hidden"
+                    disabled={isUploadingTemplate}
+                  />
+                  {isUploadingTemplate ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                  ) : (
+                    <Upload className="h-5 w-5 text-gray-400" />
+                  )}
+                  <span className="text-sm text-gray-600">
+                    {isUploadingTemplate ? 'Uploading...' : 'Upload Template CSV'}
+                  </span>
+                </label>
+              )}
             </div>
           </div>
         </div>

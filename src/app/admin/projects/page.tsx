@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Plus,
@@ -22,69 +22,113 @@ import {
   Bell,
   BellOff,
   Settings,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  LayoutGrid,
+  Database,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
+import { supabase } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
 
-// Mock projects data
-const mockProjects = [
-  {
-    id: '1',
-    name: 'Acme Water Company',
-    slug: 'acme-water',
-    description: 'Municipal water utility serving the greater Acme area',
-    publicLink: '/validate/acme-water',
-    alertOnUpload: true,
-    totalUploads: 45,
-    validUploads: 38,
-    lastUpload: '2024-01-15T10:30:00',
-    createdAt: '2023-06-15T00:00:00',
-  },
-  {
-    id: '2',
-    name: 'City Utilities Department',
-    slug: 'city-utilities',
-    description: 'City water and gas services',
-    publicLink: '/validate/city-utilities',
-    alertOnUpload: true,
-    totalUploads: 32,
-    validUploads: 30,
-    lastUpload: '2024-01-15T09:15:00',
-    createdAt: '2023-08-20T00:00:00',
-  },
-  {
-    id: '3',
-    name: 'Regional Gas Co',
-    slug: 'regional-gas',
-    description: 'Natural gas distribution company',
-    publicLink: '/validate/regional-gas',
-    alertOnUpload: false,
-    totalUploads: 28,
-    validUploads: 25,
-    lastUpload: '2024-01-14T16:45:00',
-    createdAt: '2023-09-10T00:00:00',
-  },
-  {
-    id: '4',
-    name: 'Metro Electric',
-    slug: 'metro-electric',
-    description: 'Electric utility for metropolitan area',
-    publicLink: '/validate/metro-electric',
-    alertOnUpload: true,
-    totalUploads: 15,
-    validUploads: 10,
-    lastUpload: '2024-01-14T14:20:00',
-    createdAt: '2023-11-01T00:00:00',
-  },
-];
+interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  public_link: string;
+  alert_on_upload: boolean;
+  created_at: string;
+  total_uploads?: number;
+  last_upload?: string;
+  last_upload_status?: 'valid' | 'invalid' | 'pending' | null;
+  layout_errors?: number;
+  data_errors?: number;
+}
 
 export default function AdminProjectsPage() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
+  // Load projects from Supabase
+  useEffect(() => {
+    loadProjects();
+  }, []);
+
+  const loadProjects = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading projects:', error);
+        return;
+      }
+
+      if (data) {
+        // Get upload stats for each project
+        const projectsWithStats = await Promise.all(
+          data.map(async (project) => {
+            const { count: totalUploads } = await supabase
+              .from('file_uploads')
+              .select('*', { count: 'exact', head: true })
+              .eq('project_id', project.id);
+
+            // Get the last upload with its validation status and errors
+            const { data: lastUploadData } = await supabase
+              .from('file_uploads')
+              .select('uploaded_at, validation_status, validation_errors')
+              .eq('project_id', project.id)
+              .order('uploaded_at', { ascending: false })
+              .limit(1)
+              .single();
+
+            // Count layout errors vs data errors from the last upload
+            let layoutErrors = 0;
+            let dataErrors = 0;
+
+            if (lastUploadData?.validation_errors) {
+              const errors = lastUploadData.validation_errors as Array<{ rule: string }>;
+              errors.forEach((error) => {
+                // Layout errors are column structure issues
+                if (error.rule === 'missing_column' || error.rule === 'extra_column') {
+                  layoutErrors++;
+                } else {
+                  dataErrors++;
+                }
+              });
+            }
+
+            return {
+              ...project,
+              total_uploads: totalUploads || 0,
+              last_upload: lastUploadData?.uploaded_at,
+              last_upload_status: lastUploadData?.validation_status as 'valid' | 'invalid' | 'pending' | null,
+              layout_errors: layoutErrors,
+              data_errors: dataErrors,
+            };
+          })
+        );
+
+        setProjects(projectsWithStats);
+      }
+    } catch (err) {
+      console.error('Error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Filter projects by search term
-  const filteredProjects = mockProjects.filter(project =>
+  const filteredProjects = projects.filter(project =>
     project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     project.slug.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -96,8 +140,44 @@ export default function AdminProjectsPage() {
     const fullLink = `${window.location.origin}${link}`;
     await navigator.clipboard.writeText(fullLink);
     setCopiedLink(projectId);
+    setOpenMenu(null);
     setTimeout(() => setCopiedLink(null), 2000);
   };
+
+  /**
+   * Delete a project
+   */
+  const deleteProject = async (projectId: string) => {
+    if (!confirm('Are you sure you want to delete this project?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ is_active: false })
+        .eq('id', projectId);
+
+      if (error) throw error;
+
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+      setOpenMenu(null);
+    } catch (err) {
+      console.error('Error deleting project:', err);
+      alert('Failed to delete project');
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header isLoggedIn={true} userName="Admin" userRole="admin" />
+        <main className="max-w-7xl mx-auto px-4 py-8">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-temetra-blue-600" />
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -140,7 +220,7 @@ export default function AdminProjectsPage() {
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <h3 className="font-semibold text-gray-900">{project.name}</h3>
-                  <p className="text-sm text-gray-500">{project.description}</p>
+                  <p className="text-sm text-gray-500">{project.description || 'No description'}</p>
                 </div>
                 <div className="relative">
                   <button
@@ -175,14 +255,17 @@ export default function AdminProjectsPage() {
                         Validation Rules
                       </Link>
                       <button
-                        onClick={() => copyLink(project.id, project.publicLink)}
+                        onClick={() => copyLink(project.id, project.public_link)}
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                       >
                         <Copy className="h-4 w-4" />
                         {copiedLink === project.id ? 'Copied!' : 'Copy Public Link'}
                       </button>
                       <hr className="my-1" />
-                      <button className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                      <button
+                        onClick={() => deleteProject(project.id)}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                      >
                         <Trash2 className="h-4 w-4" />
                         Delete Project
                       </button>
@@ -192,17 +275,65 @@ export default function AdminProjectsPage() {
               </div>
 
               {/* Stats */}
-              <div className="grid grid-cols-2 gap-4 py-4 border-y border-gray-100">
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{project.totalUploads}</p>
-                  <p className="text-xs text-gray-500">Total Uploads</p>
+              <div className="py-4 border-y border-gray-100">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-2xl font-bold text-gray-900">{project.total_uploads || 0}</p>
+                    <p className="text-xs text-gray-500">Total Uploads</p>
+                  </div>
+                  {/* Status indicator for last upload */}
+                  <div className="text-right">
+                    {project.last_upload_status === 'valid' ? (
+                      <div className="flex items-center gap-2 text-green-600">
+                        <CheckCircle className="h-6 w-6" />
+                        <span className="text-sm font-medium">Passed</span>
+                      </div>
+                    ) : project.last_upload_status === 'invalid' ? (
+                      <div className="flex items-center gap-2 text-red-600">
+                        <XCircle className="h-6 w-6" />
+                        <span className="text-sm font-medium">Failed</span>
+                      </div>
+                    ) : project.last_upload_status === 'pending' ? (
+                      <div className="flex items-center gap-2 text-yellow-600">
+                        <AlertTriangle className="h-6 w-6" />
+                        <span className="text-sm font-medium">Pending</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-gray-400">
+                        <span className="text-sm">No uploads</span>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">Last File Status</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-bold text-green-600">
-                    {Math.round((project.validUploads / project.totalUploads) * 100)}%
-                  </p>
-                  <p className="text-xs text-gray-500">Success Rate</p>
-                </div>
+
+                {/* Error counters - only show if there are errors */}
+                {(project.layout_errors || 0) + (project.data_errors || 0) > 0 && (
+                  <div className="flex gap-2 mt-3">
+                    <Link
+                      href={`/admin/projects/${project.id}/logs?error_type=layout`}
+                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        (project.layout_errors || 0) > 0
+                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      <LayoutGrid className="h-4 w-4" />
+                      <span>{project.layout_errors || 0} Layout</span>
+                    </Link>
+                    <Link
+                      href={`/admin/projects/${project.id}/logs?error_type=data`}
+                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        (project.data_errors || 0) > 0
+                          ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      <Database className="h-4 w-4" />
+                      <span>{project.data_errors || 0} Data</span>
+                    </Link>
+                  </div>
+                )}
               </div>
 
               {/* Footer info */}
@@ -211,10 +342,10 @@ export default function AdminProjectsPage() {
                 <div className="flex items-center gap-2 text-sm">
                   <LinkIcon className="h-4 w-4 text-gray-400" />
                   <code className="text-xs bg-gray-100 px-2 py-1 rounded flex-1 overflow-hidden text-ellipsis">
-                    {project.publicLink}
+                    {project.public_link}
                   </code>
                   <button
-                    onClick={() => copyLink(project.id, project.publicLink)}
+                    onClick={() => copyLink(project.id, project.public_link)}
                     className="text-temetra-blue-600 hover:text-temetra-blue-700"
                   >
                     <Copy className="h-4 w-4" />
@@ -224,7 +355,7 @@ export default function AdminProjectsPage() {
                 {/* Alert status */}
                 <div className="flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2 text-gray-500">
-                    {project.alertOnUpload ? (
+                    {project.alert_on_upload ? (
                       <>
                         <Bell className="h-4 w-4 text-green-500" />
                         <span>Alerts enabled</span>
@@ -240,7 +371,9 @@ export default function AdminProjectsPage() {
 
                 {/* Last upload */}
                 <p className="text-xs text-gray-500">
-                  Last upload: {formatDate(project.lastUpload)}
+                  {project.last_upload
+                    ? `Last upload: ${formatDate(project.last_upload)}`
+                    : 'No uploads yet'}
                 </p>
               </div>
 
@@ -264,15 +397,27 @@ export default function AdminProjectsPage() {
         </div>
 
         {/* Empty state */}
-        {filteredProjects.length === 0 && (
+        {filteredProjects.length === 0 && !isLoading && (
           <div className="text-center py-12">
-            <p className="text-gray-500">No projects found matching &quot;{searchTerm}&quot;</p>
-            <button
-              onClick={() => setSearchTerm('')}
-              className="mt-2 text-temetra-blue-600 hover:text-temetra-blue-700"
-            >
-              Clear search
-            </button>
+            {searchTerm ? (
+              <>
+                <p className="text-gray-500">No projects found matching &quot;{searchTerm}&quot;</p>
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="mt-2 text-temetra-blue-600 hover:text-temetra-blue-700"
+                >
+                  Clear search
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-500 mb-4">No projects yet. Create your first project to get started.</p>
+                <Link href="/admin/projects/new" className="btn-primary inline-flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  Create Project
+                </Link>
+              </>
+            )}
           </div>
         )}
       </main>

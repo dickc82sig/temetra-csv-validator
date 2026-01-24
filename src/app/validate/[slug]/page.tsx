@@ -31,30 +31,34 @@ import FileUpload from '@/components/ui/FileUpload';
 import ValidationResults from '@/components/ui/ValidationResults';
 import { validateCSV, ValidationResult } from '@/lib/csv-validator';
 import { getDefaultTemplate } from '@/lib/validation-rules';
+import { supabase } from '@/lib/supabase';
 import { isValidEmail, isAlex, getGreeting } from '@/lib/utils';
 
-// Mock project data - in production this would come from the database
-const mockProjects: Record<string, { name: string; description: string }> = {
-  'acme-water': {
-    name: 'Acme Water Company',
-    description: 'Upload your NewNetworkUpload CSV file for validation',
-  },
-  'city-utilities': {
-    name: 'City Utilities Department',
-    description: 'Upload your NewNetworkUpload CSV file for validation',
-  },
-  'regional-gas': {
-    name: 'Regional Gas Co',
-    description: 'Upload your NewNetworkUpload CSV file for validation',
-  },
-};
+interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  slug: string;
+  template_csv_url: string | null;
+  documentation_url: string | null;
+}
+
+interface FormatColumn {
+  name: string;
+  required: boolean;
+  type: string;
+  maxLength?: number;
+  description?: string;
+}
 
 export default function PublicValidationPage() {
   const params = useParams();
   const slug = params.slug as string;
 
-  // Check if project exists
-  const project = mockProjects[slug];
+  // Project state
+  const [project, setProject] = useState<Project | null>(null);
+  const [isLoadingProject, setIsLoadingProject] = useState(true);
+  const [projectNotFound, setProjectNotFound] = useState(false);
 
   // Form state
   const [file, setFile] = useState<File | null>(null);
@@ -70,10 +74,91 @@ export default function PublicValidationPage() {
   const [validationResults, setValidationResults] = useState<ValidationResult | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showFormatSpec, setShowFormatSpec] = useState(false);
 
   // Human verification
   const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [captchaQuestion, setCaptchaQuestion] = useState({ a: 0, b: 0, answer: 0 });
+
+  // Get format columns from template
+  const template = getDefaultTemplate();
+  const formatColumns: FormatColumn[] = template.rules.map(rule => ({
+    name: rule.column_name,
+    required: rule.is_required,
+    type: rule.data_type,
+    maxLength: rule.max_length,
+    description: rule.notes,
+  }));
+
+  // Load project from Supabase
+  useEffect(() => {
+    const loadProject = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('id, name, description, slug, template_csv_url, documentation_url')
+          .eq('slug', slug)
+          .eq('is_active', true)
+          .single();
+
+        if (error || !data) {
+          setProjectNotFound(true);
+        } else {
+          setProject(data);
+        }
+      } catch (err) {
+        console.error('Error loading project:', err);
+        setProjectNotFound(true);
+      } finally {
+        setIsLoadingProject(false);
+      }
+    };
+
+    loadProject();
+  }, [slug]);
+
+  /**
+   * Download a CSV template with the correct column headers
+   */
+  const downloadTemplate = () => {
+    // If project has a custom template URL, use that
+    if (project?.template_csv_url) {
+      window.open(project.template_csv_url, '_blank');
+      return;
+    }
+
+    // Otherwise, generate a template from the validation rules
+    const headers = formatColumns.map(col => col.name).join(',');
+    const exampleRow = formatColumns.map(col => {
+      if (col.type === 'number') return '0';
+      if (col.type === 'boolean') return 'Y';
+      if (col.type === 'date') return '2024-01-01';
+      return '';
+    }).join(',');
+
+    const csvContent = `${headers}\n${exampleRow}`;
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project?.slug || 'template'}_template.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  /**
+   * View documentation
+   */
+  const viewDocumentation = () => {
+    if (project?.documentation_url) {
+      window.open(project.documentation_url, '_blank');
+    } else {
+      // Show format spec as fallback
+      setShowFormatSpec(true);
+    }
+  };
 
   // Generate captcha on mount
   useEffect(() => {
@@ -82,8 +167,17 @@ export default function PublicValidationPage() {
     setCaptchaQuestion({ a, b, answer: a + b });
   }, []);
 
+  // Loading state
+  if (isLoadingProject) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-temetra-blue-600" />
+      </div>
+    );
+  }
+
   // 404 if project doesn't exist
-  if (!project) {
+  if (projectNotFound || !project) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <div className="text-center">
@@ -107,7 +201,7 @@ export default function PublicValidationPage() {
   /**
    * Handle file selection
    */
-  const handleFileSelect = useCallback(async (selectedFile: File) => {
+  const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
     setValidationResults(null);
     setErrors({});
@@ -118,7 +212,7 @@ export default function PublicValidationPage() {
       setFileContent(content);
     };
     reader.readAsText(selectedFile);
-  }, []);
+  };
 
   /**
    * Add an additional email
@@ -214,9 +308,35 @@ export default function PublicValidationPage() {
     setIsSubmitting(true);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Save the upload to Supabase
+      const { error } = await supabase
+        .from('file_uploads')
+        .insert({
+          project_id: project.id,
+          file_name: file?.name || 'unknown.csv',
+          file_path: `/uploads/${project.slug}/${file?.name}`,
+          file_size: file?.size || 0,
+          uploaded_by_name: name,
+          uploaded_by_email: email,
+          additional_emails: additionalEmails.length > 0 ? additionalEmails : null,
+          upload_type: 'developer_submission',
+          validation_status: validationResults?.isValid ? 'valid' : 'invalid',
+          errors: validationResults?.errors || null,
+          validation_summary: validationResults
+            ? `${validationResults.totalRows} rows, ${validationResults.totalErrors} errors`
+            : null,
+        });
+
+      if (error) {
+        console.error('Error saving upload:', error);
+        setErrors(prev => ({ ...prev, submit: `Failed to save upload: ${error.message}` }));
+        setIsSubmitting(false);
+        return;
+      }
+
       setSubmitted(true);
-    } catch {
+    } catch (err) {
+      console.error('Submit error:', err);
       setErrors(prev => ({ ...prev, submit: 'Failed to submit. Please try again.' }));
     } finally {
       setIsSubmitting(false);
@@ -297,7 +417,9 @@ export default function PublicValidationPage() {
       <main className="max-w-4xl mx-auto px-4 py-8">
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900">Upload CSV for Validation</h2>
-          <p className="mt-2 text-gray-600">{project.description}</p>
+          <p className="mt-2 text-gray-600">
+            {project.description || 'Upload your CSV file for validation'}
+          </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -485,15 +607,24 @@ export default function PublicValidationPage() {
             <div className="card">
               <h3 className="font-semibold text-gray-900 mb-3">Quick Links</h3>
               <div className="space-y-2">
-                <button className="w-full btn-secondary flex items-center gap-2 text-sm">
+                <button
+                  onClick={() => setShowFormatSpec(true)}
+                  className="w-full btn-secondary flex items-center gap-2 text-sm"
+                >
                   <Eye className="h-4 w-4" />
                   See Format Spec
                 </button>
-                <button className="w-full btn-secondary flex items-center gap-2 text-sm">
+                <button
+                  onClick={downloadTemplate}
+                  className="w-full btn-secondary flex items-center gap-2 text-sm"
+                >
                   <Download className="h-4 w-4" />
                   Download Template
                 </button>
-                <button className="w-full btn-secondary flex items-center gap-2 text-sm">
+                <button
+                  onClick={viewDocumentation}
+                  className="w-full btn-secondary flex items-center gap-2 text-sm"
+                >
                   <FileText className="h-4 w-4" />
                   View Documentation
                 </button>
@@ -510,6 +641,87 @@ export default function PublicValidationPage() {
           </div>
         </div>
       </main>
+
+      {/* Format Specification Modal */}
+      {showFormatSpec && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-xl font-bold text-gray-900">CSV Format Specification</h2>
+              <button
+                onClick={() => setShowFormatSpec(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
+              <p className="text-sm text-gray-600 mb-4">
+                Your CSV file must contain the following columns in order. Required fields are marked with an asterisk (*).
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border px-3 py-2 text-left font-medium text-gray-700">#</th>
+                      <th className="border px-3 py-2 text-left font-medium text-gray-700">Column Name</th>
+                      <th className="border px-3 py-2 text-center font-medium text-gray-700">Required</th>
+                      <th className="border px-3 py-2 text-left font-medium text-gray-700">Type</th>
+                      <th className="border px-3 py-2 text-left font-medium text-gray-700">Max Length</th>
+                      <th className="border px-3 py-2 text-left font-medium text-gray-700">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {formatColumns.map((col, index) => (
+                      <tr key={col.name} className={col.required ? 'bg-red-50' : 'bg-white'}>
+                        <td className="border px-3 py-2 text-gray-500">{index + 1}</td>
+                        <td className="border px-3 py-2 font-medium">
+                          {col.name}
+                          {col.required && <span className="text-red-500 ml-1">*</span>}
+                        </td>
+                        <td className="border px-3 py-2 text-center">
+                          {col.required ? (
+                            <span className="text-red-600">Yes</span>
+                          ) : (
+                            <span className="text-gray-400">No</span>
+                          )}
+                        </td>
+                        <td className="border px-3 py-2 text-gray-600 capitalize">{col.type}</td>
+                        <td className="border px-3 py-2 text-gray-600">
+                          {col.maxLength || '—'}
+                        </td>
+                        <td className="border px-3 py-2 text-gray-500 text-xs">
+                          {col.description || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                <p className="text-sm text-yellow-800">
+                  <strong>Note:</strong> The first row of your CSV should contain the column headers exactly as shown above.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 p-4 border-t">
+              <button
+                onClick={downloadTemplate}
+                className="btn-secondary flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Download Template
+              </button>
+              <button
+                onClick={() => setShowFormatSpec(false)}
+                className="btn-primary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="border-t mt-12 py-6 text-center text-sm text-gray-500">
         <p>&copy; {new Date().getFullYear()} Vanzora, LLC. All rights reserved.</p>

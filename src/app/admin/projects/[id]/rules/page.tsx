@@ -56,14 +56,7 @@ export default function ProjectRulesPage() {
         if (projectData) {
           setProject(projectData);
         } else {
-          // Mock project data
-          const mockProjects: Record<string, Project> = {
-            '1': { id: '1', name: 'Acme Water Company' },
-            '2': { id: '2', name: 'City Utilities Department' },
-            '3': { id: '3', name: 'Regional Gas Co' },
-            '4': { id: '4', name: 'Metro Electric' },
-          };
-          setProject(mockProjects[projectId] || { id: projectId, name: 'Unknown Project' });
+          setProject(null);
         }
 
         // Load saved rules or use defaults
@@ -181,6 +174,26 @@ export default function ProjectRulesPage() {
         <main className="max-w-6xl mx-auto px-4 py-8">
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-temetra-blue-600" />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header isLoggedIn={true} userName="Admin" userRole="admin" />
+        <main className="max-w-6xl mx-auto px-4 py-8">
+          <Link
+            href="/admin/projects"
+            className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-6"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Projects
+          </Link>
+          <div className="card text-center py-12">
+            <p className="text-gray-500">Project not found</p>
           </div>
         </main>
       </div>

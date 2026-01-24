@@ -64,12 +64,49 @@ export default function NewProjectPage() {
     setIsLoading(true);
 
     try {
-      // Create a default validation template ID (we'll use a placeholder for now)
-      const defaultTemplateId = '00000000-0000-0000-0000-000000000001';
+      // First, get or create a default validation template
+      let templateId: string | null = null;
 
-      // Get the current user (for created_by field)
-      // For demo, we'll use a placeholder user ID
-      const createdById = '00000000-0000-0000-0000-000000000001';
+      // Try to get an existing template
+      const { data: existingTemplates, error: fetchError } = await supabase
+        .from('validation_templates')
+        .select('id')
+        .limit(1);
+
+      if (fetchError) {
+        console.error('Fetch template error:', fetchError);
+      }
+
+      if (existingTemplates && existingTemplates.length > 0) {
+        templateId = existingTemplates[0].id;
+      } else {
+        // Create a default template
+        const { data: newTemplate, error: templateError } = await supabase
+          .from('validation_templates')
+          .insert({
+            name: 'Default Template',
+            description: 'Default validation template',
+            is_default: true,
+            rules: [],
+          })
+          .select('id')
+          .single();
+
+        if (templateError) {
+          console.error('Template creation error:', templateError);
+          setError('No validation template exists. Please run the SQL setup in Supabase to create a default template, or ask an admin to create one.');
+          return;
+        }
+
+        if (newTemplate) {
+          templateId = newTemplate.id;
+        }
+      }
+
+      if (!templateId) {
+        setError('No validation template found. Please create a template first in Admin > Templates.');
+        return;
+      }
 
       // Insert the new project
       const { data, error: insertError } = await supabase
@@ -79,23 +116,16 @@ export default function NewProjectPage() {
           slug: slug,
           description: formData.description.trim() || null,
           public_link: publicLink,
-          validation_template_id: defaultTemplateId,
+          validation_template_id: templateId,
           alert_on_upload: formData.alertOnUpload,
           admin_email: formData.adminEmail.trim(),
-          created_by: createdById,
+          is_active: true,
         })
         .select()
         .single();
 
       if (insertError) {
         console.error('Insert error:', insertError);
-        // If it's a foreign key error, the project might still work without proper IDs
-        if (insertError.code === '23503') {
-          setError('Database setup incomplete. Project created in demo mode.');
-          // Still redirect after a delay
-          setTimeout(() => router.push('/admin/projects'), 2000);
-          return;
-        }
         setError(`Failed to create project: ${insertError.message}`);
         return;
       }

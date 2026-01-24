@@ -69,18 +69,11 @@ export default function ProjectUploadKeyPage() {
             api_key: generateApiKey(),
           });
         } else {
-          // Mock data for demo
-          const mockProjects: Record<string, Project> = {
-            '1': { id: '1', name: 'Acme Water Company', slug: 'acme-water', public_link: '/validate/acme-water', api_key: generateApiKey() },
-            '2': { id: '2', name: 'City Utilities Department', slug: 'city-utilities', public_link: '/validate/city-utilities', api_key: generateApiKey() },
-            '3': { id: '3', name: 'Regional Gas Co', slug: 'regional-gas', public_link: '/validate/regional-gas', api_key: generateApiKey() },
-            '4': { id: '4', name: 'Metro Electric', slug: 'metro-electric', public_link: '/validate/metro-electric', api_key: generateApiKey() },
-          };
-          setProject(mockProjects[projectId] || { id: projectId, name: 'Unknown Project', slug: 'unknown', public_link: '/validate/unknown', api_key: generateApiKey() });
+          setProject(null);
         }
       } catch (err) {
         console.error('Error loading project:', err);
-        setProject({ id: projectId, name: 'Demo Project', slug: 'demo', public_link: '/validate/demo', api_key: generateApiKey() });
+        setProject(null);
       } finally {
         setIsLoading(false);
       }
@@ -120,6 +113,26 @@ export default function ProjectUploadKeyPage() {
     );
   }
 
+  if (!project) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header isLoggedIn={true} userName="Admin" userRole="admin" />
+        <main className="max-w-4xl mx-auto px-4 py-8">
+          <Link
+            href="/admin/projects"
+            className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-6"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Projects
+          </Link>
+          <div className="card text-center py-12">
+            <p className="text-gray-500">Project not found</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header isLoggedIn={true} userName="Admin" userRole="admin" />
@@ -138,7 +151,7 @@ export default function ProjectUploadKeyPage() {
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Upload Key &amp; API Access</h1>
           <p className="mt-1 text-gray-600">
-            {project?.name} &bull; Integration credentials and documentation
+            {project.name} &bull; Integration credentials and documentation
           </p>
         </div>
 

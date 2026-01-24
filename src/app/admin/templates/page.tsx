@@ -55,6 +55,8 @@ interface TemplateRule {
   notes?: string;
   example?: string;
   color_code?: string;
+  custom_rule?: string;
+  custom_rule_regex?: string;
 }
 
 // Get the default template
@@ -103,35 +105,11 @@ export default function AdminTemplatesPage() {
         );
         setTemplates(templatesWithCounts);
       } else {
-        // Use mock data with default template
-        setTemplates([
-          {
-            id: 'default-new-network-upload',
-            name: 'NewNetworkUpload',
-            description: 'Format for NewNetworkUpload CSV used to update Temetra with information from CIS/Billing.',
-            rules: defaultTemplate.rules,
-            is_default: true,
-            created_at: '2024-01-01T00:00:00',
-            updated_at: '2024-01-15T10:00:00',
-            used_by_projects: 4,
-          },
-        ]);
+        setTemplates([]);
       }
     } catch (err) {
       console.error('Error loading templates:', err);
-      // Fallback to default template
-      setTemplates([
-        {
-          id: 'default-new-network-upload',
-          name: 'NewNetworkUpload',
-          description: 'Format for NewNetworkUpload CSV used to update Temetra with information from CIS/Billing.',
-          rules: defaultTemplate.rules,
-          is_default: true,
-          created_at: '2024-01-01T00:00:00',
-          updated_at: '2024-01-15T10:00:00',
-          used_by_projects: 4,
-        },
-      ]);
+      setTemplates([]);
     } finally {
       setIsLoading(false);
     }
@@ -417,6 +395,7 @@ export default function AdminTemplatesPage() {
                           <th className="border px-3 py-2 text-center font-medium text-gray-700">Allow Blank</th>
                           <th className="border px-3 py-2 text-left font-medium text-gray-700">Max Length</th>
                           <th className="border px-3 py-2 text-left font-medium text-gray-700">Type</th>
+                          <th className="border px-3 py-2 text-left font-medium text-gray-700">Custom Rule</th>
                           <th className="border px-3 py-2 text-left font-medium text-gray-700">Example</th>
                           <th className="border px-3 py-2 text-left font-medium text-gray-700 w-10"></th>
                         </tr>
@@ -483,6 +462,24 @@ export default function AdminTemplatesPage() {
                                   </select>
                                 </td>
                                 <td className="border px-3 py-2">
+                                  <div className="space-y-1">
+                                    <input
+                                      type="text"
+                                      value={editedRule.custom_rule || ''}
+                                      onChange={e => updateRule(rule.id, { ...editedRule, custom_rule: e.target.value })}
+                                      className="w-full px-2 py-1 border rounded text-sm"
+                                      placeholder='Description (e.g., must end with ")'
+                                    />
+                                    <input
+                                      type="text"
+                                      value={editedRule.custom_rule_regex || ''}
+                                      onChange={e => updateRule(rule.id, { ...editedRule, custom_rule_regex: e.target.value })}
+                                      className="w-full px-2 py-1 border rounded text-sm font-mono"
+                                      placeholder='Regex (e.g., \d"$)'
+                                    />
+                                  </div>
+                                </td>
+                                <td className="border px-3 py-2">
                                   <input
                                     type="text"
                                     value={editedRule.example || ''}
@@ -530,6 +527,14 @@ export default function AdminTemplatesPage() {
                               <td className="border px-3 py-2 text-center">{rule.allow_blank ? '✓' : '—'}</td>
                               <td className="border px-3 py-2 text-gray-600">{rule.max_length || '—'}</td>
                               <td className="border px-3 py-2 text-gray-600 capitalize">{rule.data_type}</td>
+                              <td className="border px-3 py-2 text-gray-500 text-xs max-w-40">
+                                {rule.custom_rule || rule.custom_rule_regex ? (
+                                  <div className="space-y-0.5">
+                                    {rule.custom_rule && <div className="truncate" title={rule.custom_rule}>{rule.custom_rule}</div>}
+                                    {rule.custom_rule_regex && <div className="font-mono text-gray-400 truncate" title={rule.custom_rule_regex}>{rule.custom_rule_regex}</div>}
+                                  </div>
+                                ) : '—'}
+                              </td>
                               <td className="border px-3 py-2 text-gray-500 font-mono text-xs">
                                 {rule.example ? rule.example.slice(0, 25) : '—'}
                               </td>
@@ -570,6 +575,7 @@ export default function AdminTemplatesPage() {
                           <li>Double-click on any row to edit that field&apos;s rules</li>
                           <li>Click &quot;Save Changes&quot; to persist your edits</li>
                           <li>Color codes update based on the rules you set</li>
+                          <li><strong>Custom Rule:</strong> Enter a description (e.g., &quot;must end with &apos; after a number&quot;) and a regex pattern for validation</li>
                         </ul>
                       </div>
                     </div>

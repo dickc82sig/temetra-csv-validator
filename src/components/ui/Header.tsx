@@ -57,6 +57,9 @@ export default function Header({ isLoggedIn = false, userName = '', userRole }: 
                     <Link href="/admin/projects" className="text-sm text-gray-600 hover:text-gray-900">
                       Projects
                     </Link>
+                    <Link href="/admin/logs" className="text-sm text-gray-600 hover:text-gray-900">
+                      Logs
+                    </Link>
                     <Link href="/admin/users" className="text-sm text-gray-600 hover:text-gray-900">
                       Users
                     </Link>
@@ -166,8 +169,14 @@ export default function Header({ isLoggedIn = false, userName = '', userRole }: 
                       <Link href="/admin/projects" className="block px-2 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded">
                         Projects
                       </Link>
+                      <Link href="/admin/logs" className="block px-2 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded">
+                        Logs
+                      </Link>
                       <Link href="/admin/users" className="block px-2 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded">
                         Users
+                      </Link>
+                      <Link href="/admin/templates" className="block px-2 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded">
+                        Templates
                       </Link>
                     </>
                   )}

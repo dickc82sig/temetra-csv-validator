@@ -73,6 +73,8 @@ export interface ValidationRule {
   // Pattern matching (advanced)
   pattern?: string;              // Regular expression pattern
   invalid_characters?: string;   // Characters that are NOT allowed
+  custom_rule?: string;          // Free-form validation rule (e.g., "must end with \" after number")
+  custom_rule_regex?: string;    // Regex generated from custom rule for validation
 
   // Help text
   notes?: string;                // Description/instructions for this field

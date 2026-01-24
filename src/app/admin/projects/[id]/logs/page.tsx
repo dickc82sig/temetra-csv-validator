@@ -8,7 +8,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -20,6 +20,8 @@ import {
   Loader2,
   Calendar,
   Filter,
+  LayoutGrid,
+  Database,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
@@ -35,6 +37,8 @@ interface UploadLog {
   validRows: number;
   errorCount: number;
   warningCount: number;
+  layoutErrors: number;
+  dataErrors: number;
 }
 
 interface Project {
@@ -43,73 +47,19 @@ interface Project {
   slug: string;
 }
 
-// Mock data for demo
-const mockLogs: UploadLog[] = [
-  {
-    id: '1',
-    filename: 'meter_data_jan_2024.csv',
-    uploadedAt: '2024-01-15T10:30:00',
-    uploadedBy: 'john@acme.com',
-    status: 'valid',
-    totalRows: 1250,
-    validRows: 1250,
-    errorCount: 0,
-    warningCount: 3,
-  },
-  {
-    id: '2',
-    filename: 'readings_batch_12.csv',
-    uploadedAt: '2024-01-14T14:22:00',
-    uploadedBy: 'jane@acme.com',
-    status: 'partial',
-    totalRows: 890,
-    validRows: 845,
-    errorCount: 45,
-    warningCount: 12,
-  },
-  {
-    id: '3',
-    filename: 'network_upload_q4.csv',
-    uploadedAt: '2024-01-13T09:15:00',
-    uploadedBy: 'dev@acme.com',
-    status: 'invalid',
-    totalRows: 500,
-    validRows: 120,
-    errorCount: 380,
-    warningCount: 0,
-  },
-  {
-    id: '4',
-    filename: 'meter_data_dec_2023.csv',
-    uploadedAt: '2024-01-10T16:45:00',
-    uploadedBy: 'john@acme.com',
-    status: 'valid',
-    totalRows: 2100,
-    validRows: 2100,
-    errorCount: 0,
-    warningCount: 0,
-  },
-  {
-    id: '5',
-    filename: 'readings_update.csv',
-    uploadedAt: '2024-01-08T11:30:00',
-    uploadedBy: 'jane@acme.com',
-    status: 'valid',
-    totalRows: 450,
-    validRows: 450,
-    errorCount: 0,
-    warningCount: 8,
-  },
-];
-
 export default function ProjectLogsPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const projectId = params.id as string;
+
+  // Get initial filter from URL params
+  const initialErrorType = searchParams.get('error_type') || 'all';
 
   const [project, setProject] = useState<Project | null>(null);
   const [logs, setLogs] = useState<UploadLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterErrorType, setFilterErrorType] = useState<string>(initialErrorType);
   const [selectedLog, setSelectedLog] = useState<UploadLog | null>(null);
 
   // Load project and logs
@@ -126,45 +76,66 @@ export default function ProjectLogsPage() {
         if (projectData) {
           setProject(projectData);
         } else {
-          // Mock project data for demo
-          const mockProjects: Record<string, Project> = {
-            '1': { id: '1', name: 'Acme Water Company', slug: 'acme-water' },
-            '2': { id: '2', name: 'City Utilities Department', slug: 'city-utilities' },
-            '3': { id: '3', name: 'Regional Gas Co', slug: 'regional-gas' },
-            '4': { id: '4', name: 'Metro Electric', slug: 'metro-electric' },
-          };
-          setProject(mockProjects[projectId] || { id: projectId, name: 'Unknown Project', slug: 'unknown' });
+          setProject(null);
         }
 
-        // Try to load logs from Supabase
+        // Load logs from Supabase
         const { data: logsData } = await supabase
           .from('file_uploads')
           .select('*')
           .eq('project_id', projectId)
-          .order('created_at', { ascending: false });
+          .order('uploaded_at', { ascending: false });
 
         if (logsData && logsData.length > 0) {
           // Map Supabase data to our interface
-          setLogs(logsData.map(log => ({
-            id: log.id,
-            filename: log.file_name,
-            uploadedAt: log.created_at,
-            uploadedBy: log.uploaded_by_email || 'Unknown',
-            status: log.validation_passed ? 'valid' : (log.error_count > log.total_rows / 2 ? 'invalid' : 'partial'),
-            totalRows: log.total_rows || 0,
-            validRows: log.valid_rows || 0,
-            errorCount: log.error_count || 0,
-            warningCount: log.warning_count || 0,
-          })));
+          setLogs(logsData.map(log => {
+            // Parse validation_summary like "100 rows, 5 errors"
+            let totalRows = 0;
+            let errorCount = 0;
+            let layoutErrors = 0;
+            let dataErrors = 0;
+
+            if (log.validation_summary) {
+              const rowsMatch = log.validation_summary.match(/(\d+)\s*rows?/i);
+              const errorsMatch = log.validation_summary.match(/(\d+)\s*errors?/i);
+              if (rowsMatch) totalRows = parseInt(rowsMatch[1], 10);
+              if (errorsMatch) errorCount = parseInt(errorsMatch[1], 10);
+            }
+
+            // Count and categorize errors from validation_errors array
+            if (log.validation_errors && Array.isArray(log.validation_errors)) {
+              log.validation_errors.forEach((error: { rule: string }) => {
+                if (error.rule === 'missing_column' || error.rule === 'extra_column') {
+                  layoutErrors++;
+                } else {
+                  dataErrors++;
+                }
+              });
+              errorCount = log.validation_errors.length;
+            }
+
+            const validRows = totalRows - errorCount;
+
+            return {
+              id: log.id,
+              filename: log.file_name,
+              uploadedAt: log.uploaded_at,
+              uploadedBy: log.uploaded_by_email || 'Unknown',
+              status: log.validation_status === 'valid' ? 'valid' : (log.validation_status === 'invalid' ? 'invalid' : 'partial'),
+              totalRows,
+              validRows: validRows > 0 ? validRows : 0,
+              errorCount,
+              warningCount: 0,
+              layoutErrors,
+              dataErrors,
+            };
+          }));
         } else {
-          // Use mock data for demo
-          setLogs(mockLogs);
+          setLogs([]);
         }
       } catch (err) {
         console.error('Error loading data:', err);
-        // Fallback to mock data
-        setProject({ id: projectId, name: 'Demo Project', slug: 'demo' });
-        setLogs(mockLogs);
+        setLogs([]);
       } finally {
         setIsLoading(false);
       }
@@ -173,10 +144,21 @@ export default function ProjectLogsPage() {
     loadData();
   }, [projectId]);
 
-  // Filter logs by status
-  const filteredLogs = filterStatus === 'all'
-    ? logs
-    : logs.filter(log => log.status === filterStatus);
+  // Filter logs by status and error type
+  const filteredLogs = logs.filter(log => {
+    // Status filter
+    if (filterStatus !== 'all' && log.status !== filterStatus) {
+      return false;
+    }
+    // Error type filter
+    if (filterErrorType === 'layout' && log.layoutErrors === 0) {
+      return false;
+    }
+    if (filterErrorType === 'data' && log.dataErrors === 0) {
+      return false;
+    }
+    return true;
+  });
 
   // Calculate stats
   const stats = {
@@ -224,6 +206,26 @@ export default function ProjectLogsPage() {
     );
   }
 
+  if (!project) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header isLoggedIn={true} userName="Admin" userRole="admin" />
+        <main className="max-w-6xl mx-auto px-4 py-8">
+          <Link
+            href="/admin/projects"
+            className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-6"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Projects
+          </Link>
+          <div className="card text-center py-12">
+            <p className="text-gray-500">Project not found</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header isLoggedIn={true} userName="Admin" userRole="admin" />
@@ -243,7 +245,7 @@ export default function ProjectLogsPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Upload Logs</h1>
             <p className="mt-1 text-gray-600">
-              {project?.name} &bull; Viewing validation history
+              {project.name} &bull; Viewing validation history
             </p>
           </div>
         </div>
@@ -272,26 +274,66 @@ export default function ProjectLogsPage() {
           </div>
         </div>
 
-        {/* Filter */}
-        <div className="flex items-center gap-4 mb-6">
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+          {/* Status filter */}
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-gray-400" />
-            <span className="text-sm text-gray-600">Filter:</span>
+            <span className="text-sm text-gray-600">Status:</span>
+            <div className="flex gap-2">
+              {['all', 'valid', 'partial', 'invalid'].map(status => (
+                <button
+                  key={status}
+                  onClick={() => setFilterStatus(status)}
+                  className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                    filterStatus === status
+                      ? 'bg-temetra-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex gap-2">
-            {['all', 'valid', 'partial', 'invalid'].map(status => (
+
+          {/* Error type filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Error Type:</span>
+            <div className="flex gap-2">
               <button
-                key={status}
-                onClick={() => setFilterStatus(status)}
+                onClick={() => setFilterErrorType('all')}
                 className={`px-3 py-1 text-sm rounded-full transition-colors ${
-                  filterStatus === status
+                  filterErrorType === 'all'
                     ? 'bg-temetra-blue-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                {status.charAt(0).toUpperCase() + status.slice(1)}
+                All
               </button>
-            ))}
+              <button
+                onClick={() => setFilterErrorType('layout')}
+                className={`px-3 py-1 text-sm rounded-full transition-colors flex items-center gap-1 ${
+                  filterErrorType === 'layout'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-red-100 text-red-700 hover:bg-red-200'
+                }`}
+              >
+                <LayoutGrid className="h-3 w-3" />
+                Layout
+              </button>
+              <button
+                onClick={() => setFilterErrorType('data')}
+                className={`px-3 py-1 text-sm rounded-full transition-colors flex items-center gap-1 ${
+                  filterErrorType === 'data'
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                }`}
+              >
+                <Database className="h-3 w-3" />
+                Data
+              </button>
+            </div>
           </div>
         </div>
 
@@ -336,14 +378,22 @@ export default function ProjectLogsPage() {
                     <span className="text-gray-600">{log.totalRows}</span>
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    {log.errorCount > 0 && (
-                      <span className="text-red-600">{log.errorCount} errors</span>
-                    )}
-                    {log.errorCount > 0 && log.warningCount > 0 && <span className="text-gray-400">, </span>}
-                    {log.warningCount > 0 && (
-                      <span className="text-amber-600">{log.warningCount} warnings</span>
-                    )}
-                    {log.errorCount === 0 && log.warningCount === 0 && (
+                    {(log.layoutErrors > 0 || log.dataErrors > 0) ? (
+                      <div className="flex gap-2">
+                        {log.layoutErrors > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-100 text-red-700 text-xs">
+                            <LayoutGrid className="h-3 w-3" />
+                            {log.layoutErrors}
+                          </span>
+                        )}
+                        {log.dataErrors > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-100 text-orange-700 text-xs">
+                            <Database className="h-3 w-3" />
+                            {log.dataErrors}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
                       <span className="text-green-600">None</span>
                     )}
                   </td>
@@ -371,7 +421,24 @@ export default function ProjectLogsPage() {
 
           {filteredLogs.length === 0 && (
             <div className="text-center py-8 text-gray-500">
-              No uploads found with status &quot;{filterStatus}&quot;
+              {logs.length === 0 ? (
+                'No uploads yet'
+              ) : (
+                <>
+                  No uploads found
+                  {filterStatus !== 'all' && ` with status "${filterStatus}"`}
+                  {filterErrorType !== 'all' && ` with ${filterErrorType} errors`}
+                  <button
+                    onClick={() => {
+                      setFilterStatus('all');
+                      setFilterErrorType('all');
+                    }}
+                    className="block mx-auto mt-2 text-temetra-blue-600 hover:text-temetra-blue-700"
+                  >
+                    Clear filters
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -419,7 +486,7 @@ export default function ProjectLogsPage() {
 
               <div className="border-t pt-4">
                 <p className="text-xs text-gray-500 uppercase mb-2">Validation Results</p>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="text-center p-3 bg-gray-50 rounded">
                     <p className="text-xl font-bold text-gray-900">{selectedLog.totalRows}</p>
                     <p className="text-xs text-gray-500">Total Rows</p>
@@ -429,12 +496,18 @@ export default function ProjectLogsPage() {
                     <p className="text-xs text-gray-500">Valid Rows</p>
                   </div>
                   <div className="text-center p-3 bg-red-50 rounded">
-                    <p className="text-xl font-bold text-red-600">{selectedLog.errorCount}</p>
-                    <p className="text-xs text-gray-500">Errors</p>
+                    <div className="flex items-center justify-center gap-1 text-red-600">
+                      <LayoutGrid className="h-4 w-4" />
+                      <p className="text-xl font-bold">{selectedLog.layoutErrors}</p>
+                    </div>
+                    <p className="text-xs text-gray-500">Layout Errors</p>
                   </div>
-                  <div className="text-center p-3 bg-amber-50 rounded">
-                    <p className="text-xl font-bold text-amber-600">{selectedLog.warningCount}</p>
-                    <p className="text-xs text-gray-500">Warnings</p>
+                  <div className="text-center p-3 bg-orange-50 rounded">
+                    <div className="flex items-center justify-center gap-1 text-orange-600">
+                      <Database className="h-4 w-4" />
+                      <p className="text-xl font-bold">{selectedLog.dataErrors}</p>
+                    </div>
+                    <p className="text-xs text-gray-500">Data Errors</p>
                   </div>
                 </div>
               </div>

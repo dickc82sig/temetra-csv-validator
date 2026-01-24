@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Users,
@@ -22,68 +22,179 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  TrendingUp,
-  AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
+import { supabase } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
 
-// Mock data for demonstration
-const mockStats = {
-  totalProjects: 5,
-  totalUploads: 127,
-  validFiles: 98,
-  invalidFiles: 29,
-  pendingReview: 3,
-};
+interface Stats {
+  totalProjects: number;
+  totalUploads: number;
+  validFiles: number;
+  invalidFiles: number;
+  pendingReview: number;
+}
 
-const mockRecentUploads = [
-  {
-    id: '1',
-    fileName: 'NewNetworkUpload_Jan2024.csv',
-    projectName: 'Acme Water',
-    uploadedBy: 'john@acmewater.com',
-    uploadedAt: '2024-01-15T10:30:00',
-    status: 'valid',
-    errors: 0,
-  },
-  {
-    id: '2',
-    fileName: 'meters_batch_23.csv',
-    projectName: 'City Utilities',
-    uploadedBy: 'alex@cityutil.com',
-    uploadedAt: '2024-01-15T09:15:00',
-    status: 'invalid',
-    errors: 12,
-  },
-  {
-    id: '3',
-    fileName: 'Q4_import.csv',
-    projectName: 'Regional Gas Co',
-    uploadedBy: 'sarah@regionalgas.com',
-    uploadedAt: '2024-01-14T16:45:00',
-    status: 'valid',
-    errors: 0,
-  },
-  {
-    id: '4',
-    fileName: 'new_installs_dec.csv',
-    projectName: 'Metro Electric',
-    uploadedBy: 'mike@metroelectric.com',
-    uploadedAt: '2024-01-14T14:20:00',
-    status: 'invalid',
-    errors: 5,
-  },
-];
+interface RecentUpload {
+  id: string;
+  file_name: string;
+  project_name: string;
+  uploaded_by_email: string;
+  uploaded_at: string;
+  validation_status: string;
+  error_count: number;
+}
 
-const mockProjects = [
-  { id: '1', name: 'Acme Water', uploads: 45, lastActivity: '2024-01-15T10:30:00' },
-  { id: '2', name: 'City Utilities', uploads: 32, lastActivity: '2024-01-15T09:15:00' },
-  { id: '3', name: 'Regional Gas Co', uploads: 28, lastActivity: '2024-01-14T16:45:00' },
-];
+interface Project {
+  id: string;
+  name: string;
+  upload_count: number;
+  last_activity: string;
+}
 
 export default function AdminDashboard() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] = useState<Stats>({
+    totalProjects: 0,
+    totalUploads: 0,
+    validFiles: 0,
+    invalidFiles: 0,
+    pendingReview: 0,
+  });
+  const [recentUploads, setRecentUploads] = useState<RecentUpload[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [adminName] = useState('Admin User');
+
+  // Load dashboard data
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  const loadDashboardData = async () => {
+    try {
+      // Get project count
+      const { count: projectCount } = await supabase
+        .from('projects')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true);
+
+      // Get upload stats
+      const { count: totalUploads } = await supabase
+        .from('file_uploads')
+        .select('*', { count: 'exact', head: true });
+
+      const { count: validFiles } = await supabase
+        .from('file_uploads')
+        .select('*', { count: 'exact', head: true })
+        .eq('validation_status', 'valid');
+
+      const { count: invalidFiles } = await supabase
+        .from('file_uploads')
+        .select('*', { count: 'exact', head: true })
+        .eq('validation_status', 'invalid');
+
+      const { count: pendingFiles } = await supabase
+        .from('file_uploads')
+        .select('*', { count: 'exact', head: true })
+        .eq('validation_status', 'pending');
+
+      setStats({
+        totalProjects: projectCount || 0,
+        totalUploads: totalUploads || 0,
+        validFiles: validFiles || 0,
+        invalidFiles: invalidFiles || 0,
+        pendingReview: pendingFiles || 0,
+      });
+
+      // Get recent uploads with project names
+      const { data: uploadsData } = await supabase
+        .from('file_uploads')
+        .select(`
+          id,
+          file_name,
+          uploaded_by_email,
+          uploaded_at,
+          validation_status,
+          project_id
+        `)
+        .order('uploaded_at', { ascending: false })
+        .limit(5);
+
+      if (uploadsData && uploadsData.length > 0) {
+        // Get project names for the uploads
+        const projectIds = [...new Set(uploadsData.map(u => u.project_id))];
+        const { data: projectsData } = await supabase
+          .from('projects')
+          .select('id, name')
+          .in('id', projectIds);
+
+        const projectMap = new Map(projectsData?.map(p => [p.id, p.name]) || []);
+
+        setRecentUploads(uploadsData.map(upload => ({
+          id: upload.id,
+          file_name: upload.file_name,
+          project_name: projectMap.get(upload.project_id) || 'Unknown Project',
+          uploaded_by_email: upload.uploaded_by_email,
+          uploaded_at: upload.uploaded_at,
+          validation_status: upload.validation_status,
+          error_count: 0,
+        })));
+      }
+
+      // Get active projects with upload counts
+      const { data: projectsList } = await supabase
+        .from('projects')
+        .select('id, name, created_at')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (projectsList) {
+        const projectsWithStats = await Promise.all(
+          projectsList.map(async (project) => {
+            const { count } = await supabase
+              .from('file_uploads')
+              .select('*', { count: 'exact', head: true })
+              .eq('project_id', project.id);
+
+            const { data: lastUpload } = await supabase
+              .from('file_uploads')
+              .select('uploaded_at')
+              .eq('project_id', project.id)
+              .order('uploaded_at', { ascending: false })
+              .limit(1)
+              .single();
+
+            return {
+              id: project.id,
+              name: project.name,
+              upload_count: count || 0,
+              last_activity: lastUpload?.uploaded_at || project.created_at,
+            };
+          })
+        );
+        setProjects(projectsWithStats);
+      }
+    } catch (err) {
+      console.error('Error loading dashboard data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header isLoggedIn={true} userName={adminName} userRole="admin" />
+        <main className="max-w-7xl mx-auto px-4 py-8">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-temetra-blue-600" />
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -108,33 +219,38 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <StatCard
             title="Total Projects"
-            value={mockStats.totalProjects}
+            value={stats.totalProjects}
             icon={FolderOpen}
             color="blue"
+            href="/admin/projects"
           />
           <StatCard
             title="Total Uploads"
-            value={mockStats.totalUploads}
+            value={stats.totalUploads}
             icon={Upload}
             color="gray"
+            href="/admin/logs"
           />
           <StatCard
             title="Valid Files"
-            value={mockStats.validFiles}
+            value={stats.validFiles}
             icon={CheckCircle}
             color="green"
+            href="/admin/logs?status=valid"
           />
           <StatCard
             title="Invalid Files"
-            value={mockStats.invalidFiles}
+            value={stats.invalidFiles}
             icon={XCircle}
             color="red"
+            href="/admin/logs?status=invalid"
           />
           <StatCard
             title="Pending Review"
-            value={mockStats.pendingReview}
+            value={stats.pendingReview}
             icon={Clock}
             color="yellow"
+            href="/admin/logs?status=pending"
           />
         </div>
 
@@ -149,48 +265,56 @@ export default function AdminDashboard() {
                 </Link>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-left text-sm text-gray-500 border-b">
-                      <th className="pb-3 font-medium">File</th>
-                      <th className="pb-3 font-medium">Project</th>
-                      <th className="pb-3 font-medium">Uploaded By</th>
-                      <th className="pb-3 font-medium">Status</th>
-                      <th className="pb-3 font-medium">Time</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {mockRecentUploads.map(upload => (
-                      <tr key={upload.id} className="text-sm">
-                        <td className="py-3">
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4 text-gray-400" />
-                            <span className="font-medium text-gray-900">{upload.fileName}</span>
-                          </div>
-                        </td>
-                        <td className="py-3 text-gray-600">{upload.projectName}</td>
-                        <td className="py-3 text-gray-600">
-                          {/* Easter egg: Show "Alexa" for Alex */}
-                          {upload.uploadedBy.toLowerCase().includes('alex')
-                            ? upload.uploadedBy.replace(/alex/i, 'Alexa')
-                            : upload.uploadedBy}
-                        </td>
-                        <td className="py-3">
-                          {upload.status === 'valid' ? (
-                            <span className="badge-success">Valid</span>
-                          ) : (
-                            <span className="badge-error">{upload.errors} errors</span>
-                          )}
-                        </td>
-                        <td className="py-3 text-gray-500">
-                          {formatDate(upload.uploadedAt)}
-                        </td>
+              {recentUploads.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="text-left text-sm text-gray-500 border-b">
+                        <th className="pb-3 font-medium">File</th>
+                        <th className="pb-3 font-medium">Project</th>
+                        <th className="pb-3 font-medium">Uploaded By</th>
+                        <th className="pb-3 font-medium">Status</th>
+                        <th className="pb-3 font-medium">Time</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y">
+                      {recentUploads.map(upload => (
+                        <tr key={upload.id} className="text-sm">
+                          <td className="py-3">
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-gray-400" />
+                              <span className="font-medium text-gray-900">{upload.file_name}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 text-gray-600">{upload.project_name}</td>
+                          <td className="py-3 text-gray-600">
+                            {upload.uploaded_by_email.toLowerCase().includes('alex')
+                              ? upload.uploaded_by_email.replace(/alex/i, 'Alexa')
+                              : upload.uploaded_by_email}
+                          </td>
+                          <td className="py-3">
+                            {upload.validation_status === 'valid' ? (
+                              <span className="badge-success">Valid</span>
+                            ) : upload.validation_status === 'invalid' ? (
+                              <span className="badge-error">Invalid</span>
+                            ) : (
+                              <span className="badge-warning">Pending</span>
+                            )}
+                          </td>
+                          <td className="py-3 text-gray-500">
+                            {formatDate(upload.uploaded_at)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <Upload className="h-12 w-12 mx-auto text-gray-300 mb-3" />
+                  <p>No uploads yet</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -205,23 +329,32 @@ export default function AdminDashboard() {
                 </Link>
               </div>
 
-              <div className="space-y-3">
-                {mockProjects.map(project => (
-                  <Link
-                    key={project.id}
-                    href={`/admin/projects/${project.id}`}
-                    className="block p-3 rounded-lg border border-gray-200 hover:border-temetra-blue-300 hover:bg-temetra-blue-50 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-gray-900">{project.name}</span>
-                      <span className="text-sm text-gray-500">{project.uploads} uploads</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Last activity: {formatDate(project.lastActivity)}
-                    </p>
+              {projects.length > 0 ? (
+                <div className="space-y-3">
+                  {projects.map(project => (
+                    <Link
+                      key={project.id}
+                      href={`/admin/projects/${project.id}`}
+                      className="block p-3 rounded-lg border border-gray-200 hover:border-temetra-blue-300 hover:bg-temetra-blue-50 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-900">{project.name}</span>
+                        <span className="text-sm text-gray-500">{project.upload_count} uploads</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Last activity: {formatDate(project.last_activity)}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-gray-500">
+                  <p className="text-sm">No projects yet</p>
+                  <Link href="/admin/projects/new" className="text-sm text-temetra-blue-600 hover:underline">
+                    Create your first project
                   </Link>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Quick Actions */}
@@ -236,7 +369,7 @@ export default function AdminDashboard() {
                   <FileText className="h-4 w-4" />
                   Validation Templates
                 </Link>
-                <Link href="/admin/settings" className="w-full btn-secondary flex items-center gap-2 justify-start">
+                <Link href="/settings" className="w-full btn-secondary flex items-center gap-2 justify-start">
                   <Settings className="h-4 w-4" />
                   Settings
                 </Link>
@@ -244,20 +377,22 @@ export default function AdminDashboard() {
             </div>
 
             {/* Notifications */}
-            <div className="card border-yellow-200 bg-yellow-50">
-              <div className="flex items-start gap-3">
-                <Bell className="h-5 w-5 text-yellow-600 flex-shrink-0" />
-                <div>
-                  <h3 className="font-medium text-yellow-800">3 files need review</h3>
-                  <p className="text-sm text-yellow-700 mt-1">
-                    Some uploaded files have validation errors and may need attention.
-                  </p>
-                  <Link href="/admin/logs?status=invalid" className="text-sm text-yellow-800 font-medium mt-2 inline-block hover:underline">
-                    Review now →
-                  </Link>
+            {stats.pendingReview > 0 && (
+              <div className="card border-yellow-200 bg-yellow-50">
+                <div className="flex items-start gap-3">
+                  <Bell className="h-5 w-5 text-yellow-600 flex-shrink-0" />
+                  <div>
+                    <h3 className="font-medium text-yellow-800">{stats.pendingReview} files need review</h3>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      Some uploaded files have validation errors and may need attention.
+                    </p>
+                    <Link href="/admin/logs?status=invalid" className="text-sm text-yellow-800 font-medium mt-2 inline-block hover:underline">
+                      Review now →
+                    </Link>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </main>
@@ -278,11 +413,13 @@ function StatCard({
   value,
   icon: Icon,
   color,
+  href,
 }: {
   title: string;
   value: number;
   icon: React.ElementType;
   color: 'blue' | 'green' | 'red' | 'yellow' | 'gray';
+  href?: string;
 }) {
   const colorClasses = {
     blue: 'bg-blue-100 text-blue-600',
@@ -292,17 +429,25 @@ function StatCard({
     gray: 'bg-gray-100 text-gray-600',
   };
 
-  return (
-    <div className="card">
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg ${colorClasses[color]}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-          <p className="text-sm text-gray-500">{title}</p>
-        </div>
+  const content = (
+    <div className="flex items-center gap-3">
+      <div className={`p-2 rounded-lg ${colorClasses[color]}`}>
+        <Icon className="h-5 w-5" />
+      </div>
+      <div>
+        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <p className="text-sm text-gray-500">{title}</p>
       </div>
     </div>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="card hover:shadow-md hover:border-temetra-blue-300 transition-all cursor-pointer">
+        {content}
+      </Link>
+    );
+  }
+
+  return <div className="card">{content}</div>;
 }

@@ -61,25 +61,7 @@ export default function EditProjectPage() {
 
         if (fetchError) {
           console.error('Fetch error:', fetchError);
-          // If not found in Supabase, try mock data for demo
-          const mockProjects = [
-            { id: '1', name: 'Acme Water Company', slug: 'acme-water', description: 'Municipal water utility serving the greater Acme area', admin_email: 'admin@acme.com', alert_on_upload: true },
-            { id: '2', name: 'City Utilities Department', slug: 'city-utilities', description: 'City water and gas services', admin_email: 'admin@cityutil.com', alert_on_upload: true },
-            { id: '3', name: 'Regional Gas Co', slug: 'regional-gas', description: 'Natural gas distribution company', admin_email: 'admin@regionalgas.com', alert_on_upload: false },
-            { id: '4', name: 'Metro Electric', slug: 'metro-electric', description: 'Electric utility for metropolitan area', admin_email: 'admin@metroelectric.com', alert_on_upload: true },
-          ];
-          const mockProject = mockProjects.find(p => p.id === projectId);
-          if (mockProject) {
-            setFormData({
-              name: mockProject.name,
-              description: mockProject.description || '',
-              adminEmail: mockProject.admin_email || '',
-              alertOnUpload: mockProject.alert_on_upload,
-            });
-            setOriginalSlug(mockProject.slug);
-          } else {
-            setError('Project not found');
-          }
+          setError('Project not found');
           setIsLoading(false);
           return;
         }
@@ -150,11 +132,6 @@ export default function EditProjectPage() {
 
       if (updateError) {
         console.error('Update error:', updateError);
-        // For demo mode, just redirect
-        if (updateError.code === 'PGRST116') {
-          router.push('/admin/projects');
-          return;
-        }
         setError(`Failed to update project: ${updateError.message}`);
         return;
       }
@@ -183,8 +160,7 @@ export default function EditProjectPage() {
 
       if (deleteError) {
         console.error('Delete error:', deleteError);
-        // For demo mode, just redirect
-        router.push('/admin/projects');
+        setError(`Failed to delete project: ${deleteError.message}`);
         return;
       }
 

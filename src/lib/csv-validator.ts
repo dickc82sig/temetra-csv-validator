@@ -219,6 +219,29 @@ export function validateCSV(
         }
       }
 
+      // Check: Does it match a custom rule?
+      // custom_rule_regex is the regex pattern, custom_rule is the human-readable description
+      if (rule.custom_rule_regex && value !== '') {
+        try {
+          const regex = new RegExp(rule.custom_rule_regex);
+          if (!regex.test(value)) {
+            errors.push({
+              row: rowNumber,
+              column: rule.column_name,
+              value: value,
+              rule: 'custom_rule',
+              message: rule.custom_rule
+                ? `"${rule.column_name}" failed validation: ${rule.custom_rule}`
+                : `"${rule.column_name}" doesn't match the custom format rule`,
+              severity: 'error',
+              notes: rule.notes,
+            });
+          }
+        } catch {
+          // Invalid regex pattern - skip this check
+        }
+      }
+
       // Special validation for specific columns
       // These are business rules specific to Temetra
 
