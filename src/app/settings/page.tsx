@@ -31,7 +31,11 @@ export default function SettingsPage() {
   const router = useRouter();
 
   // User profile state
-  const [profile, setProfile] = useState({
+  const [profile, setProfile] = useState<{
+    name: string;
+    email: string;
+    role: 'admin' | 'developer' | 'end_customer';
+  }>({
     name: '',
     email: '',
     role: 'admin',
