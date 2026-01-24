@@ -74,7 +74,7 @@ export default function AdminLogsPage() {
 
       if (uploadsData && uploadsData.length > 0) {
         // Get project names
-        const projectIds = [...new Set(uploadsData.map(u => u.project_id))];
+        const projectIds = Array.from(new Set(uploadsData.map(u => u.project_id)));
         const { data: projectsData } = await supabase
           .from('projects')
           .select('id, name')
