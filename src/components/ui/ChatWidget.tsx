@@ -72,6 +72,21 @@ export default function ChatWidget() {
               role: 'admin', // Default to admin for testing
             });
           }
+        } else {
+          // No Supabase auth - check if we're on an admin/developer page (demo mode)
+          const isAdminPage = window.location.pathname.startsWith('/admin');
+          const isDeveloperPage = window.location.pathname.startsWith('/developer');
+
+          if (isAdminPage || isDeveloperPage) {
+            // Demo mode - create a demo user for chat
+            console.log('Chat: Demo mode enabled');
+            setCurrentUser({
+              id: 'demo-user-id',
+              name: isAdminPage ? 'Admin' : 'Developer',
+              email: isAdminPage ? 'admin@demo.com' : 'dev@demo.com',
+              role: isAdminPage ? 'admin' : 'developer',
+            });
+          }
         }
       } catch (err) {
         console.error('Error loading current user:', err);
