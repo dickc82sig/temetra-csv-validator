@@ -7,8 +7,8 @@
 
 'use client';
 
-import { useState, useEffect, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -55,8 +55,9 @@ interface Template {
 
 const defaultTemplate = getDefaultTemplate();
 
-export default function TemplateEditPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
+export default function TemplateEditPage() {
+  const params = useParams();
+  const templateId = params.id as string;
   const router = useRouter();
   const [template, setTemplate] = useState<Template | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -67,14 +68,14 @@ export default function TemplateEditPage({ params }: { params: Promise<{ id: str
 
   useEffect(() => {
     loadTemplate();
-  }, [resolvedParams.id]);
+  }, [templateId]);
 
   const loadTemplate = async () => {
     try {
       const { data, error } = await supabase
         .from('validation_templates')
         .select('*')
-        .eq('id', resolvedParams.id)
+        .eq('id', templateId)
         .single();
 
       if (error) throw error;
