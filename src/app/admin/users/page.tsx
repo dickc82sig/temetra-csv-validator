@@ -22,6 +22,9 @@ import {
   UserX,
   Loader2,
   X,
+  Eye,
+  EyeOff,
+  Key,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
@@ -64,10 +67,13 @@ export default function AdminUsersPage() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    password: '',
     role: 'developer' as 'admin' | 'developer' | 'end_customer',
     company_name: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState('');
+  const [formSuccess, setFormSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   /**
@@ -122,44 +128,53 @@ export default function AdminUsersPage() {
   };
 
   /**
-   * Add a new user
+   * Add a new user (creates in both Supabase Auth and users table)
    */
   const handleAddUser = async () => {
     setFormError('');
+    setFormSuccess('');
 
     if (!formData.name.trim() || !formData.email.trim()) {
       setFormError('Name and email are required');
       return;
     }
 
+    if (!formData.password || formData.password.length < 6) {
+      setFormError('Password must be at least 6 characters');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .insert({
+      // Call our API route to create user in both Auth and users table
+      const response = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           name: formData.name.trim(),
           email: formData.email.trim().toLowerCase(),
+          password: formData.password,
           role: formData.role,
           company_name: formData.company_name.trim() || null,
-          is_active: true,
-        })
-        .select()
-        .single();
+        }),
+      });
 
-      if (error) {
-        if (error.code === '23505') {
-          setFormError('A user with this email already exists');
-        } else {
-          setFormError(`Failed to create user: ${error.message}`);
-        }
+      const result = await response.json();
+
+      if (!response.ok) {
+        setFormError(result.error || 'Failed to create user');
         return;
       }
 
-      // Success - close modal and refresh list
-      setShowAddModal(false);
-      setFormData({ name: '', email: '', role: 'developer', company_name: '' });
-      loadUsers();
+      // Success - show message, close modal and refresh list
+      setFormSuccess(`User "${formData.name}" created successfully! They can now log in with their email and temporary password.`);
+      setTimeout(() => {
+        setShowAddModal(false);
+        setFormData({ name: '', email: '', password: '', role: 'developer', company_name: '' });
+        setFormSuccess('');
+        loadUsers();
+      }, 2000);
     } catch (err) {
       setFormError('An unexpected error occurred');
     } finally {
@@ -200,7 +215,7 @@ export default function AdminUsersPage() {
       // Success - close modal and refresh list
       setShowEditModal(false);
       setEditingUser(null);
-      setFormData({ name: '', email: '', role: 'developer', company_name: '' });
+      setFormData({ name: '', email: '', password: '', role: 'developer', company_name: '' });
       loadUsers();
     } catch (err) {
       setFormError('An unexpected error occurred');
@@ -288,8 +303,10 @@ export default function AdminUsersPage() {
           </div>
           <button
             onClick={() => {
-              setFormData({ name: '', email: '', role: 'developer', company_name: '' });
+              setFormData({ name: '', email: '', password: '', role: 'developer', company_name: '' });
               setFormError('');
+              setFormSuccess('');
+              setShowPassword(false);
               setShowAddModal(true);
             }}
             className="mt-4 sm:mt-0 btn-primary flex items-center gap-2"
@@ -492,6 +509,12 @@ export default function AdminUsersPage() {
               </div>
             )}
 
+            {formSuccess && (
+              <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+                {formSuccess}
+              </div>
+            )}
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Name *</label>
@@ -514,6 +537,34 @@ export default function AdminUsersPage() {
                   className="input-field mt-1"
                   placeholder="john@company.com"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  <span className="flex items-center gap-1">
+                    <Key className="h-4 w-4" />
+                    Temporary Password *
+                  </span>
+                </label>
+                <div className="relative mt-1">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    name="password"
+                    value={formData.password}
+                    onChange={handleFormChange}
+                    className="input-field pr-10"
+                    placeholder="Min 6 characters"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Share this password with the user so they can log in. They can change it in Settings.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Role</label>
