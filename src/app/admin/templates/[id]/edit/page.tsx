@@ -22,6 +22,9 @@ import {
   Plus,
   Trash2,
   HelpCircle,
+  Upload,
+  File,
+  Download,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
@@ -44,11 +47,20 @@ interface TemplateRule {
   custom_rule_regex?: string;
 }
 
+interface TemplateDocument {
+  id: string;
+  name: string;
+  url: string;
+  size: number;
+  uploaded_at: string;
+}
+
 interface Template {
   id: string;
   name: string;
   description: string | null;
   rules: TemplateRule[];
+  documents?: TemplateDocument[];
   is_default: boolean;
   created_at: string;
   updated_at: string;
@@ -67,6 +79,7 @@ export default function TemplateEditPage() {
   const [editedRules, setEditedRules] = useState<Record<string, TemplateRule>>({});
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
 
   useEffect(() => {
     loadTemplate();
@@ -260,6 +273,108 @@ export default function TemplateEditPage() {
     const newEdited = { ...editedRules };
     delete newEdited[ruleId];
     setEditedRules(newEdited);
+  };
+
+  // Upload a document to the template
+  const uploadDocument = async (file: File) => {
+    if (!template) return;
+
+    setIsUploadingDoc(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `templates/${template.id}/${Date.now()}-${file.name}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('documentation')
+        .upload(fileName, file);
+
+      if (uploadError) {
+        console.error('Storage upload error:', uploadError);
+        throw new Error('Failed to upload file. Storage may not be configured.');
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('documentation')
+        .getPublicUrl(fileName);
+
+      // Create document entry
+      const newDoc: TemplateDocument = {
+        id: `doc-${Date.now()}`,
+        name: file.name,
+        url: publicUrl,
+        size: file.size,
+        uploaded_at: new Date().toISOString(),
+      };
+
+      // Update template with new document
+      const updatedDocs = [...(template.documents || []), newDoc];
+
+      const { error: updateError } = await supabase
+        .from('validation_templates')
+        .update({
+          documents: updatedDocs,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', template.id);
+
+      if (updateError) throw updateError;
+
+      setTemplate(prev => prev ? { ...prev, documents: updatedDocs } : prev);
+      setMessage({ type: 'success', text: 'Document uploaded successfully!' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      console.error('Error uploading document:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to upload document';
+      setMessage({ type: 'error', text: errorMessage });
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
+
+  // Delete a document from the template
+  const deleteDocument = async (docId: string) => {
+    if (!template) return;
+
+    const doc = template.documents?.find(d => d.id === docId);
+    if (!doc) return;
+
+    try {
+      // Extract file path from URL for deletion
+      const urlParts = doc.url.split('/documentation/');
+      if (urlParts.length > 1) {
+        const filePath = urlParts[1];
+        await supabase.storage.from('documentation').remove([filePath]);
+      }
+
+      // Update template to remove document
+      const updatedDocs = (template.documents || []).filter(d => d.id !== docId);
+
+      const { error: updateError } = await supabase
+        .from('validation_templates')
+        .update({
+          documents: updatedDocs,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', template.id);
+
+      if (updateError) throw updateError;
+
+      setTemplate(prev => prev ? { ...prev, documents: updatedDocs } : prev);
+      setMessage({ type: 'success', text: 'Document deleted!' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      console.error('Error deleting document:', err);
+      setMessage({ type: 'error', text: 'Failed to delete document' });
+    }
+  };
+
+  // Format file size for display
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   // Returns array of color classes for all applicable rules
@@ -617,6 +732,85 @@ export default function TemplateEditPage() {
               <button onClick={addNewRule} className="mt-4 btn-primary">
                 Add First Column
               </button>
+            </div>
+          )}
+        </div>
+
+        {/* Documents Section */}
+        <div className="card mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold text-gray-900">Template Documentation</h3>
+              <p className="text-sm text-gray-500">Upload documents to help users understand this template</p>
+            </div>
+            <label className={`btn-secondary flex items-center gap-2 cursor-pointer ${isUploadingDoc ? 'opacity-50' : ''}`}>
+              {isUploadingDoc ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4" />
+                  Upload Document
+                </>
+              )}
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                disabled={isUploadingDoc}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    uploadDocument(file);
+                    e.target.value = '';
+                  }
+                }}
+              />
+            </label>
+          </div>
+
+          {/* Document list */}
+          {(template.documents && template.documents.length > 0) ? (
+            <div className="space-y-2">
+              {template.documents.map(doc => (
+                <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <File className="h-5 w-5 text-temetra-blue-600" />
+                    <div>
+                      <p className="font-medium text-gray-900">{doc.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {formatFileSize(doc.size)} • Uploaded {new Date(doc.uploaded_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={doc.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 text-temetra-blue-600 hover:bg-temetra-blue-50 rounded"
+                      title="Download"
+                    >
+                      <Download className="h-4 w-4" />
+                    </a>
+                    <button
+                      onClick={() => deleteDocument(doc.id)}
+                      className="p-2 text-red-500 hover:bg-red-50 rounded"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <File className="mx-auto h-10 w-10 text-gray-300 mb-2" />
+              <p>No documents uploaded yet</p>
+              <p className="text-xs">Upload PDFs, Word docs, Excel files, or text files</p>
             </div>
           )}
         </div>

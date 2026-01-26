@@ -8,7 +8,8 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Upload,
   FileText,
@@ -28,6 +29,7 @@ import ValidationResults from '@/components/ui/ValidationResults';
 import { validateCSV, ValidationResult, getCSVPreview } from '@/lib/csv-validator';
 import { getDefaultTemplate } from '@/lib/validation-rules';
 import { isValidEmail, isAlex, getGreeting, getDisplayName } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 
 export default function DeveloperPage() {
   // Form state
@@ -45,6 +47,22 @@ export default function DeveloperPage() {
   const [submitted, setSubmitted] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showFormatSpec, setShowFormatSpec] = useState(false);
+  const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
+
+  // Fetch the default template ID from the database
+  useEffect(() => {
+    const fetchDefaultTemplate = async () => {
+      const { data } = await supabase
+        .from('validation_templates')
+        .select('id')
+        .eq('is_default', true)
+        .single();
+      if (data) {
+        setDefaultTemplateId(data.id);
+      }
+    };
+    fetchDefaultTemplate();
+  }, []);
 
   // Get format columns from template for quick links
   const template = getDefaultTemplate();
@@ -485,13 +503,23 @@ export default function DeveloperPage() {
                   <Download className="h-4 w-4" />
                   Download Template
                 </button>
-                <button
-                  onClick={() => setShowFormatSpec(true)}
-                  className="w-full btn-secondary flex items-center gap-2 text-sm"
-                >
-                  <FileText className="h-4 w-4" />
-                  View Documentation
-                </button>
+                {defaultTemplateId ? (
+                  <Link
+                    href={`/admin/templates/${defaultTemplateId}/documents`}
+                    className="w-full btn-secondary flex items-center gap-2 text-sm"
+                  >
+                    <FileText className="h-4 w-4" />
+                    View Documentation
+                  </Link>
+                ) : (
+                  <button
+                    disabled
+                    className="w-full btn-secondary flex items-center gap-2 text-sm opacity-50"
+                  >
+                    <FileText className="h-4 w-4" />
+                    View Documentation
+                  </button>
+                )}
               </div>
             </div>
 

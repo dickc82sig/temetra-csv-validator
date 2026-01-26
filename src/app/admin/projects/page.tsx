@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   LayoutGrid,
   Database,
+  FileText,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
@@ -41,6 +42,7 @@ interface Project {
   public_link: string;
   alert_on_upload: boolean;
   created_at: string;
+  validation_template_id?: string;
   total_uploads?: number;
   last_upload?: string;
   last_upload_status?: 'valid' | 'invalid' | 'pending' | null;
@@ -405,6 +407,15 @@ export default function AdminProjectsPage() {
                 >
                   View Logs
                 </Link>
+                {project.validation_template_id && (
+                  <Link
+                    href={`/admin/templates/${project.validation_template_id}/documents`}
+                    className="flex-1 btn-secondary text-center text-sm flex items-center justify-center gap-1"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Docs
+                  </Link>
+                )}
                 <Link
                   href={`/admin/projects/${project.id}/upload`}
                   className="flex-1 btn-primary text-center text-sm"
