@@ -96,11 +96,15 @@ export default function TemplateEditPage() {
     }
   };
 
-  const updateRule = (ruleId: string, updates: Partial<TemplateRule>) => {
-    setEditedRules(prev => ({
-      ...prev,
-      [ruleId]: { ...prev[ruleId], ...updates },
-    }));
+  const updateRule = (ruleId: string, field: string, value: string | number | boolean | undefined) => {
+    setEditedRules(prev => {
+      const currentRule = prev[ruleId] || template?.rules.find(r => r.id === ruleId);
+      if (!currentRule) return prev;
+      return {
+        ...prev,
+        [ruleId]: { ...currentRule, [field]: value },
+      };
+    });
   };
 
   const saveChanges = async () => {
@@ -108,29 +112,50 @@ export default function TemplateEditPage() {
 
     setIsSaving(true);
     try {
-      const updatedRules = template.rules.map(rule => ({
-        ...rule,
-        ...(editedRules[rule.id] || {}),
-      }));
+      // Merge edited rules into template rules
+      const updatedRules = template.rules.map(rule => {
+        const edited = editedRules[rule.id];
+        if (edited) {
+          return { ...rule, ...edited };
+        }
+        return rule;
+      });
 
-      const { error } = await supabase
+      // Save to Supabase
+      const { data, error } = await supabase
         .from('validation_templates')
         .update({
           rules: updatedRules,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', template.id);
+        .eq('id', template.id)
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw new Error(error.message || 'Database update failed');
+      }
 
-      setTemplate(prev => prev ? { ...prev, rules: updatedRules } : prev);
+      // Update local state with data from database to confirm save
+      if (data) {
+        setTemplate({
+          ...data,
+          rules: data.rules || updatedRules,
+        });
+      } else {
+        // Fallback: update local state with our changes
+        setTemplate(prev => prev ? { ...prev, rules: updatedRules } : prev);
+      }
+
       setEditedRules({});
       setEditingRule(null);
       setMessage({ type: 'success', text: 'Template saved successfully!' });
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
       console.error('Error saving template:', err);
-      setMessage({ type: 'error', text: 'Failed to save template' });
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save template';
+      setMessage({ type: 'error', text: `Save failed: ${errorMessage}` });
     } finally {
       setIsSaving(false);
     }
@@ -347,7 +372,7 @@ export default function TemplateEditPage() {
                           <input
                             type="text"
                             value={editedRule.column_name}
-                            onChange={e => updateRule(rule.id, { ...editedRule, column_name: e.target.value })}
+                            onChange={e => updateRule(rule.id, 'column_name', e.target.value)}
                             className="w-full px-2 py-1 border rounded text-sm"
                           />
                         </td>
@@ -355,7 +380,7 @@ export default function TemplateEditPage() {
                           <input
                             type="checkbox"
                             checked={editedRule.is_required}
-                            onChange={e => updateRule(rule.id, { ...editedRule, is_required: e.target.checked })}
+                            onChange={e => updateRule(rule.id, 'is_required', e.target.checked)}
                             className="w-4 h-4"
                           />
                         </td>
@@ -363,7 +388,7 @@ export default function TemplateEditPage() {
                           <input
                             type="checkbox"
                             checked={editedRule.is_unique}
-                            onChange={e => updateRule(rule.id, { ...editedRule, is_unique: e.target.checked })}
+                            onChange={e => updateRule(rule.id, 'is_unique', e.target.checked)}
                             className="w-4 h-4"
                           />
                         </td>
@@ -371,7 +396,7 @@ export default function TemplateEditPage() {
                           <input
                             type="checkbox"
                             checked={editedRule.allow_blank}
-                            onChange={e => updateRule(rule.id, { ...editedRule, allow_blank: e.target.checked })}
+                            onChange={e => updateRule(rule.id, 'allow_blank', e.target.checked)}
                             className="w-4 h-4"
                           />
                         </td>
@@ -379,14 +404,14 @@ export default function TemplateEditPage() {
                           <input
                             type="number"
                             value={editedRule.max_length || ''}
-                            onChange={e => updateRule(rule.id, { ...editedRule, max_length: e.target.value ? parseInt(e.target.value) : undefined })}
+                            onChange={e => updateRule(rule.id, 'max_length', e.target.value ? parseInt(e.target.value) : undefined)}
                             className="w-full px-2 py-1 border rounded text-sm"
                           />
                         </td>
                         <td className="border px-3 py-2">
                           <select
                             value={editedRule.data_type}
-                            onChange={e => updateRule(rule.id, { ...editedRule, data_type: e.target.value })}
+                            onChange={e => updateRule(rule.id, 'data_type', e.target.value)}
                             className="w-full px-2 py-1 border rounded text-sm"
                           >
                             <option value="text">Text</option>
@@ -400,14 +425,14 @@ export default function TemplateEditPage() {
                             <input
                               type="text"
                               value={editedRule.custom_rule || ''}
-                              onChange={e => updateRule(rule.id, { ...editedRule, custom_rule: e.target.value })}
+                              onChange={e => updateRule(rule.id, 'custom_rule', e.target.value)}
                               className="w-full px-2 py-1 border rounded text-sm"
                               placeholder="Description"
                             />
                             <input
                               type="text"
                               value={editedRule.custom_rule_regex || ''}
-                              onChange={e => updateRule(rule.id, { ...editedRule, custom_rule_regex: e.target.value })}
+                              onChange={e => updateRule(rule.id, 'custom_rule_regex', e.target.value)}
                               className="w-full px-2 py-1 border rounded text-sm font-mono"
                               placeholder="Regex pattern"
                             />
@@ -417,7 +442,7 @@ export default function TemplateEditPage() {
                           <input
                             type="text"
                             value={editedRule.example || ''}
-                            onChange={e => updateRule(rule.id, { ...editedRule, example: e.target.value })}
+                            onChange={e => updateRule(rule.id, 'example', e.target.value)}
                             className="w-full px-2 py-1 border rounded text-sm"
                           />
                         </td>
