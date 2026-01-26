@@ -494,16 +494,16 @@ export default function TemplateEditPage() {
                       <td className="border px-3 py-2 text-center">{editedRule.allow_blank ? '✓' : '—'}</td>
                       <td className="border px-3 py-2 text-gray-600">{editedRule.max_length || '—'}</td>
                       <td className="border px-3 py-2 text-gray-600 capitalize">{editedRule.data_type}</td>
-                      <td className="border px-3 py-2 text-gray-500 text-xs max-w-48">
+                      <td className="border px-3 py-2 text-gray-500 text-xs">
                         {editedRule.custom_rule || editedRule.custom_rule_regex ? (
-                          <div className="space-y-0.5">
-                            {editedRule.custom_rule && <div className="truncate" title={editedRule.custom_rule}>{editedRule.custom_rule}</div>}
-                            {editedRule.custom_rule_regex && <div className="font-mono text-gray-400 truncate" title={editedRule.custom_rule_regex}>{editedRule.custom_rule_regex}</div>}
+                          <div className="space-y-1">
+                            {editedRule.custom_rule && <div className="break-words whitespace-normal">{editedRule.custom_rule}</div>}
+                            {editedRule.custom_rule_regex && <div className="font-mono text-gray-400 break-all whitespace-normal">{editedRule.custom_rule_regex}</div>}
                           </div>
                         ) : '—'}
                       </td>
-                      <td className="border px-3 py-2 text-gray-500 font-mono text-xs">
-                        {editedRule.example ? editedRule.example.slice(0, 30) : '—'}
+                      <td className="border px-3 py-2 text-gray-500 font-mono text-xs break-words whitespace-normal">
+                        {editedRule.example || '—'}
                       </td>
                       <td className="border px-3 py-2">
                         <div className="flex justify-center gap-1">
