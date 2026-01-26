@@ -107,6 +107,69 @@ export default function TemplateEditPage() {
     });
   };
 
+  // Save a single rule and close edit mode
+  const saveRuleAndClose = async (ruleId: string) => {
+    if (!template) return;
+
+    const editedRule = editedRules[ruleId];
+    if (!editedRule) {
+      // No changes to save, just close
+      setEditingRule(null);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Merge the edited rule into template rules
+      const updatedRules = template.rules.map(rule => {
+        if (rule.id === ruleId) {
+          return { ...rule, ...editedRule };
+        }
+        return rule;
+      });
+
+      // Save to Supabase
+      const { data, error } = await supabase
+        .from('validation_templates')
+        .update({
+          rules: updatedRules,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', template.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw new Error(error.message || 'Database update failed');
+      }
+
+      // Update local state with data from database
+      if (data) {
+        setTemplate({
+          ...data,
+          rules: data.rules || updatedRules,
+        });
+      } else {
+        setTemplate(prev => prev ? { ...prev, rules: updatedRules } : prev);
+      }
+
+      // Clear the edited rule and close edit mode
+      const newEdited = { ...editedRules };
+      delete newEdited[ruleId];
+      setEditedRules(newEdited);
+      setEditingRule(null);
+      setMessage({ type: 'success', text: 'Rule saved!' });
+      setTimeout(() => setMessage(null), 2000);
+    } catch (err) {
+      console.error('Error saving rule:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save rule';
+      setMessage({ type: 'error', text: `Save failed: ${errorMessage}` });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const saveChanges = async () => {
     if (!template) return;
 
@@ -449,11 +512,16 @@ export default function TemplateEditPage() {
                         <td className="border px-3 py-2">
                           <div className="flex justify-center gap-1">
                             <button
-                              onClick={() => setEditingRule(null)}
-                              className="p-1 text-green-600 hover:bg-green-100 rounded"
-                              title="Done editing"
+                              onClick={() => saveRuleAndClose(rule.id)}
+                              disabled={isSaving}
+                              className="p-1 text-green-600 hover:bg-green-100 rounded disabled:opacity-50"
+                              title="Save and close"
                             >
-                              <Save className="h-4 w-4" />
+                              {isSaving ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Save className="h-4 w-4" />
+                              )}
                             </button>
                             <button
                               onClick={() => {
@@ -462,7 +530,8 @@ export default function TemplateEditPage() {
                                 delete newEdited[rule.id];
                                 setEditedRules(newEdited);
                               }}
-                              className="p-1 text-gray-500 hover:bg-gray-100 rounded"
+                              disabled={isSaving}
+                              className="p-1 text-gray-500 hover:bg-gray-100 rounded disabled:opacity-50"
                               title="Cancel"
                             >
                               <X className="h-4 w-4" />
