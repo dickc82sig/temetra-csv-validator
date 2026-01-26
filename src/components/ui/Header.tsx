@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { LogIn, LogOut, Menu, X, User, Settings, HelpCircle, Info } from 'lucide-react';
 import { getGreeting, isAlex } from '@/lib/utils';
+import ChatWidget from './ChatWidget';
 
 interface HeaderProps {
   // Is the user currently logged in?
@@ -97,6 +98,9 @@ export default function Header({ isLoggedIn = false, userName = '', userRole }: 
                       `Hi, ${userName}`
                     )}
                   </span>
+
+                  {/* Chat widget - self-contained, handles its own user data */}
+                  <ChatWidget />
 
                   {/* User menu dropdown could go here */}
                   <Link href="/settings" className="text-gray-400 hover:text-gray-600">

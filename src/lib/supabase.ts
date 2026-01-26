@@ -37,6 +37,8 @@ export const TABLES = {
   VALIDATION_TEMPLATES: 'validation_templates',
   FILE_UPLOADS: 'file_uploads',
   ACTIVITY_LOGS: 'activity_logs',
+  CHAT_MESSAGES: 'chat_messages',
+  CHAT_NOTIFICATIONS: 'chat_notifications',
 };
 
 /**
