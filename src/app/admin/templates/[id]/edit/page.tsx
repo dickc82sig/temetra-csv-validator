@@ -262,12 +262,16 @@ export default function TemplateEditPage() {
     setEditedRules(newEdited);
   };
 
-  const getColorIndicator = (rule: TemplateRule) => {
-    if (rule.is_unique) return 'bg-purple-500';
-    if (rule.is_required && !rule.allow_blank) return 'bg-red-500';
-    if (rule.max_length) return 'bg-yellow-500';
-    if (!rule.is_required) return 'bg-green-500';
-    return 'bg-gray-400';
+  // Returns array of color classes for all applicable rules
+  const getColorIndicators = (rule: TemplateRule): string[] => {
+    const colors: string[] = [];
+    if (rule.is_required && !rule.allow_blank) colors.push('bg-red-500');
+    if (rule.is_unique) colors.push('bg-purple-500');
+    if (rule.max_length) colors.push('bg-yellow-500');
+    if (!rule.is_required) colors.push('bg-green-500');
+    // If no special rules, show gray
+    if (colors.length === 0) colors.push('bg-gray-400');
+    return colors;
   };
 
   const getRowBgColor = (rule: TemplateRule) => {
@@ -554,7 +558,11 @@ export default function TemplateEditPage() {
                       <td className="border px-3 py-2 text-gray-500">{index + 1}</td>
                       <td className="border px-3 py-2">
                         <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${getColorIndicator(editedRule)}`}></span>
+                          <div className="flex gap-0.5">
+                            {getColorIndicators(editedRule).map((color, i) => (
+                              <span key={i} className={`w-2 h-2 rounded-full ${color}`}></span>
+                            ))}
+                          </div>
                           <span className="font-medium">{editedRule.column_name}</span>
                         </div>
                       </td>
