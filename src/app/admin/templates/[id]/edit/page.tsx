@@ -476,7 +476,7 @@ export default function TemplateEditPage() {
                   return (
                     <tr
                       key={rule.id}
-                      className={`${getRowBgColor(rule)} hover:bg-opacity-75 cursor-pointer`}
+                      className={`${getRowBgColor(editedRule)} hover:bg-opacity-75 cursor-pointer`}
                       onDoubleClick={() => {
                         setEditedRules(prev => ({ ...prev, [rule.id]: prev[rule.id] || rule }));
                         setEditingRule(rule.id);
@@ -485,25 +485,25 @@ export default function TemplateEditPage() {
                       <td className="border px-3 py-2 text-gray-500">{index + 1}</td>
                       <td className="border px-3 py-2">
                         <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${getColorIndicator(rule)}`}></span>
-                          <span className="font-medium">{rule.column_name}</span>
+                          <span className={`w-2 h-2 rounded-full ${getColorIndicator(editedRule)}`}></span>
+                          <span className="font-medium">{editedRule.column_name}</span>
                         </div>
                       </td>
-                      <td className="border px-3 py-2 text-center">{rule.is_required ? '✓' : '—'}</td>
-                      <td className="border px-3 py-2 text-center">{rule.is_unique ? '✓' : '—'}</td>
-                      <td className="border px-3 py-2 text-center">{rule.allow_blank ? '✓' : '—'}</td>
-                      <td className="border px-3 py-2 text-gray-600">{rule.max_length || '—'}</td>
-                      <td className="border px-3 py-2 text-gray-600 capitalize">{rule.data_type}</td>
+                      <td className="border px-3 py-2 text-center">{editedRule.is_required ? '✓' : '—'}</td>
+                      <td className="border px-3 py-2 text-center">{editedRule.is_unique ? '✓' : '—'}</td>
+                      <td className="border px-3 py-2 text-center">{editedRule.allow_blank ? '✓' : '—'}</td>
+                      <td className="border px-3 py-2 text-gray-600">{editedRule.max_length || '—'}</td>
+                      <td className="border px-3 py-2 text-gray-600 capitalize">{editedRule.data_type}</td>
                       <td className="border px-3 py-2 text-gray-500 text-xs max-w-48">
-                        {rule.custom_rule || rule.custom_rule_regex ? (
+                        {editedRule.custom_rule || editedRule.custom_rule_regex ? (
                           <div className="space-y-0.5">
-                            {rule.custom_rule && <div className="truncate" title={rule.custom_rule}>{rule.custom_rule}</div>}
-                            {rule.custom_rule_regex && <div className="font-mono text-gray-400 truncate" title={rule.custom_rule_regex}>{rule.custom_rule_regex}</div>}
+                            {editedRule.custom_rule && <div className="truncate" title={editedRule.custom_rule}>{editedRule.custom_rule}</div>}
+                            {editedRule.custom_rule_regex && <div className="font-mono text-gray-400 truncate" title={editedRule.custom_rule_regex}>{editedRule.custom_rule_regex}</div>}
                           </div>
                         ) : '—'}
                       </td>
                       <td className="border px-3 py-2 text-gray-500 font-mono text-xs">
-                        {rule.example ? rule.example.slice(0, 30) : '—'}
+                        {editedRule.example ? editedRule.example.slice(0, 30) : '—'}
                       </td>
                       <td className="border px-3 py-2">
                         <div className="flex justify-center gap-1">
