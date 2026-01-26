@@ -116,6 +116,16 @@ export default function SettingsPage() {
     };
 
     loadUserData();
+
+    // Load notification settings from localStorage
+    const savedNotifications = localStorage.getItem('temetra_notifications');
+    if (savedNotifications) {
+      try {
+        setNotifications(JSON.parse(savedNotifications));
+      } catch {
+        // Invalid JSON, use defaults
+      }
+    }
   }, []);
 
   // Save profile settings
@@ -146,9 +156,25 @@ export default function SettingsPage() {
   const saveNotifications = async () => {
     setIsSaving(true);
     try {
-      // In a real app, this would save to the database
-      // For now, just show success
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Save to localStorage for persistence
+      localStorage.setItem('temetra_notifications', JSON.stringify(notifications));
+
+      // Also try to save to Supabase user_settings if table exists
+      const { error } = await supabase.from('user_settings').upsert({
+        user_email: profile.email,
+        email_on_upload: notifications.emailOnUpload,
+        email_on_error: notifications.emailOnError,
+        daily_digest: notifications.dailyDigest,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_email',
+      });
+
+      if (error) {
+        // Table might not exist - that's OK, we saved to localStorage
+        console.log('Note: user_settings table may not exist, using localStorage');
+      }
+
       setMessage({ type: 'success', text: 'Notification settings saved!' });
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {

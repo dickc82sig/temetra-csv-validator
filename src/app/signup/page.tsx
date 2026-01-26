@@ -19,6 +19,7 @@ import {
   getPasswordStrengthLabel,
 } from '@/lib/password-utils';
 import { isValidEmail } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 
 export default function SignupPage() {
   // Form fields
@@ -79,13 +80,44 @@ export default function SignupPage() {
     setIsLoading(true);
 
     try {
-      // TODO: Add Supabase user creation here
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Create user with Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            name: formData.name,
+            role: formData.role,
+          },
+        },
+      });
+
+      if (authError) {
+        throw new Error(authError.message);
+      }
+
+      // Create user profile in the users table
+      if (authData.user) {
+        const { error: profileError } = await supabase.from('users').insert({
+          id: authData.user.id,
+          email: formData.email,
+          name: formData.name,
+          role: formData.role,
+          company_name: formData.companyName || null,
+          phone: formData.phone || null,
+        });
+
+        if (profileError) {
+          console.error('Error creating profile:', profileError);
+          // Don't fail the signup if profile creation fails - user can update later
+        }
+      }
 
       // Show success message
       setSuccess(true);
-    } catch {
-      setError('Failed to create account. Please try again.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create account. Please try again.';
+      setError(message);
     } finally {
       setIsLoading(false);
     }
