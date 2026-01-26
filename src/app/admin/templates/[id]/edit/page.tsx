@@ -21,6 +21,7 @@ import {
   AlertCircle,
   Plus,
   Trash2,
+  HelpCircle,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
@@ -65,6 +66,7 @@ export default function TemplateEditPage() {
   const [editingRule, setEditingRule] = useState<string | null>(null);
   const [editedRules, setEditedRules] = useState<Record<string, TemplateRule>>({});
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     loadTemplate();
@@ -532,7 +534,221 @@ export default function TemplateEditPage() {
             </div>
           </div>
         </div>
+
+        {/* Help button */}
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => setShowHelp(true)}
+            className="inline-flex items-center gap-2 text-temetra-blue-600 hover:text-temetra-blue-700 font-medium"
+          >
+            <HelpCircle className="h-5 w-5" />
+            Custom Rule Help & Documentation
+          </button>
+        </div>
       </main>
+
+      {/* Help Modal */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <HelpCircle className="h-6 w-6 text-temetra-blue-600" />
+                <h2 className="text-xl font-semibold text-gray-900">Custom Rule Documentation</h2>
+              </div>
+              <button
+                onClick={() => setShowHelp(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto">
+              {/* Column Options */}
+              <section className="mb-8">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Column Validation Options</h3>
+                <div className="space-y-4">
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900">Required</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      When checked, this column must exist in the CSV file. Validation will fail if the column is missing.
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900">Unique</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      When checked, all values in this column must be unique. Duplicate values will be flagged as errors.
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900">Allow Blank</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      When checked, empty/blank values are permitted in this column. When unchecked, every row must have a value.
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900">Max Length</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Maximum number of characters allowed in this column. Leave empty for no limit.
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900">Data Type</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      <strong>Text:</strong> Any string value<br />
+                      <strong>Number:</strong> Numeric values only (integers or decimals)<br />
+                      <strong>Boolean:</strong> True/false, yes/no, 1/0 values<br />
+                      <strong>Date:</strong> Date values in standard formats
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              {/* Custom Rules */}
+              <section className="mb-8">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Custom Rules</h3>
+                <p className="text-gray-600 mb-4">
+                  Custom rules allow you to define advanced validation using regular expressions (regex).
+                </p>
+
+                <div className="space-y-4">
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900">Description Field</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      A human-readable description of what the rule validates. This is shown in error messages to help users understand why their data failed validation.
+                    </p>
+                    <p className="text-sm text-gray-500 mt-2 italic">
+                      Example: &quot;Must end with a quote after a number&quot;
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900">Regex Pattern Field</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      A regular expression pattern that values must match. The entire value must match the pattern.
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              {/* Regex Examples */}
+              <section className="mb-8">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Common Regex Patterns</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border px-3 py-2 text-left">Pattern</th>
+                        <th className="border px-3 py-2 text-left">Description</th>
+                        <th className="border px-3 py-2 text-left">Example Match</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="border px-3 py-2 font-mono text-xs">^\d+$</td>
+                        <td className="border px-3 py-2">Numbers only</td>
+                        <td className="border px-3 py-2">12345</td>
+                      </tr>
+                      <tr className="bg-gray-50">
+                        <td className="border px-3 py-2 font-mono text-xs">^[A-Z]{"{2,3}"}$</td>
+                        <td className="border px-3 py-2">2-3 uppercase letters</td>
+                        <td className="border px-3 py-2">USA, CA</td>
+                      </tr>
+                      <tr>
+                        <td className="border px-3 py-2 font-mono text-xs">^\d{"{5}"}(-\d{"{4}"})?$</td>
+                        <td className="border px-3 py-2">US ZIP code (5 or 9 digit)</td>
+                        <td className="border px-3 py-2">12345, 12345-6789</td>
+                      </tr>
+                      <tr className="bg-gray-50">
+                        <td className="border px-3 py-2 font-mono text-xs">^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{"{2,}"}$</td>
+                        <td className="border px-3 py-2">Email address</td>
+                        <td className="border px-3 py-2">user@example.com</td>
+                      </tr>
+                      <tr>
+                        <td className="border px-3 py-2 font-mono text-xs">^\d{"{3}"}-\d{"{3}"}-\d{"{4}"}$</td>
+                        <td className="border px-3 py-2">US Phone (xxx-xxx-xxxx)</td>
+                        <td className="border px-3 py-2">555-123-4567</td>
+                      </tr>
+                      <tr className="bg-gray-50">
+                        <td className="border px-3 py-2 font-mono text-xs">^\d+&quot;$</td>
+                        <td className="border px-3 py-2">Ends with quote after number</td>
+                        <td className="border px-3 py-2">12&quot;</td>
+                      </tr>
+                      <tr>
+                        <td className="border px-3 py-2 font-mono text-xs">^(Yes|No|N/A)$</td>
+                        <td className="border px-3 py-2">Specific allowed values</td>
+                        <td className="border px-3 py-2">Yes, No, N/A</td>
+                      </tr>
+                      <tr className="bg-gray-50">
+                        <td className="border px-3 py-2 font-mono text-xs">^[A-Z]{"{2}"}\d{"{6}"}$</td>
+                        <td className="border px-3 py-2">2 letters + 6 digits</td>
+                        <td className="border px-3 py-2">AB123456</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {/* Regex Reference */}
+              <section>
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Regex Quick Reference</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">^</code> - Start of string
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">$</code> - End of string
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">\d</code> - Any digit (0-9)
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">\w</code> - Any word character
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">.</code> - Any single character
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">+</code> - One or more
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">*</code> - Zero or more
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">?</code> - Zero or one (optional)
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">{"{n}"}</code> - Exactly n times
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">{"{n,m}"}</code> - Between n and m times
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">[abc]</code> - Any of a, b, or c
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">[A-Z]</code> - Any uppercase letter
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">(a|b)</code> - Either a or b
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded">
+                    <code className="text-temetra-blue-600">\.</code> - Literal period
+                  </div>
+                </div>
+              </section>
+            </div>
+            <div className="p-4 border-t bg-gray-50">
+              <button
+                onClick={() => setShowHelp(false)}
+                className="btn-primary w-full"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="border-t mt-12 py-6 text-center text-sm text-gray-500">
