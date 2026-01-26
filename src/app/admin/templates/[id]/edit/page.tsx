@@ -478,7 +478,7 @@ export default function TemplateEditPage() {
                       key={rule.id}
                       className={`${getRowBgColor(rule)} hover:bg-opacity-75 cursor-pointer`}
                       onDoubleClick={() => {
-                        setEditedRules(prev => ({ ...prev, [rule.id]: rule }));
+                        setEditedRules(prev => ({ ...prev, [rule.id]: prev[rule.id] || rule }));
                         setEditingRule(rule.id);
                       }}
                     >
@@ -509,7 +509,7 @@ export default function TemplateEditPage() {
                         <div className="flex justify-center gap-1">
                           <button
                             onClick={() => {
-                              setEditedRules(prev => ({ ...prev, [rule.id]: rule }));
+                              setEditedRules(prev => ({ ...prev, [rule.id]: prev[rule.id] || rule }));
                               setEditingRule(rule.id);
                             }}
                             className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
