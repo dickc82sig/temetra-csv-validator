@@ -44,6 +44,33 @@ export default function DeveloperPage() {
   const [validationResults, setValidationResults] = useState<ValidationResult | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showFormatSpec, setShowFormatSpec] = useState(false);
+
+  // Get format columns from template for quick links
+  const template = getDefaultTemplate();
+  const formatColumns = template.rules.map(rule => ({
+    name: rule.column_name,
+    required: rule.is_required,
+    type: rule.data_type,
+    maxLength: rule.max_length,
+    description: rule.notes,
+  }));
+
+  /**
+   * Download a CSV template with headers
+   */
+  const downloadTemplate = () => {
+    const headers = formatColumns.map(col => col.name).join(',');
+    const blob = new Blob([headers + '\n'], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'NewNetworkUpload_Template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   // Human verification (simple CAPTCHA alternative)
   const [captchaAnswer, setCaptchaAnswer] = useState('');
@@ -444,15 +471,24 @@ export default function DeveloperPage() {
             <div className="card">
               <h3 className="font-semibold text-gray-900 mb-3">Quick Links</h3>
               <div className="space-y-2">
-                <button className="w-full btn-secondary flex items-center gap-2 text-sm">
+                <button
+                  onClick={() => setShowFormatSpec(true)}
+                  className="w-full btn-secondary flex items-center gap-2 text-sm"
+                >
                   <Eye className="h-4 w-4" />
                   See Format Spec
                 </button>
-                <button className="w-full btn-secondary flex items-center gap-2 text-sm">
+                <button
+                  onClick={downloadTemplate}
+                  className="w-full btn-secondary flex items-center gap-2 text-sm"
+                >
                   <Download className="h-4 w-4" />
                   Download Template
                 </button>
-                <button className="w-full btn-secondary flex items-center gap-2 text-sm">
+                <button
+                  onClick={() => setShowFormatSpec(true)}
+                  className="w-full btn-secondary flex items-center gap-2 text-sm"
+                >
                   <FileText className="h-4 w-4" />
                   View Documentation
                 </button>
@@ -498,6 +534,75 @@ export default function DeveloperPage() {
       <footer className="border-t mt-12 py-6 text-center text-sm text-gray-500">
         <p>&copy; {new Date().getFullYear()} Vanzora, LLC. All rights reserved.</p>
       </footer>
+
+      {/* Format Specification Modal */}
+      {showFormatSpec && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[80vh] overflow-auto">
+            <div className="p-6 border-b sticky top-0 bg-white">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">NewNetworkUpload Format Specification</h3>
+                <button
+                  onClick={() => setShowFormatSpec(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                >
+                  &times;
+                </button>
+              </div>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-gray-600 mb-4">
+                This table shows all columns required for the NewNetworkUpload CSV format.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border px-3 py-2 text-left font-medium">Column Name</th>
+                      <th className="border px-3 py-2 text-center font-medium">Required</th>
+                      <th className="border px-3 py-2 text-left font-medium">Type</th>
+                      <th className="border px-3 py-2 text-left font-medium">Max Length</th>
+                      <th className="border px-3 py-2 text-left font-medium">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {formatColumns.map((col, index) => (
+                      <tr key={index} className={col.required ? 'bg-red-50' : ''}>
+                        <td className="border px-3 py-2 font-mono text-xs">{col.name}</td>
+                        <td className="border px-3 py-2 text-center">
+                          {col.required ? (
+                            <span className="text-red-600 font-bold">Yes</span>
+                          ) : (
+                            <span className="text-gray-400">No</span>
+                          )}
+                        </td>
+                        <td className="border px-3 py-2 capitalize">{col.type}</td>
+                        <td className="border px-3 py-2">{col.maxLength || '—'}</td>
+                        <td className="border px-3 py-2 text-xs text-gray-600">{col.description || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  onClick={downloadTemplate}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Download Template
+                </button>
+                <button
+                  onClick={() => setShowFormatSpec(false)}
+                  className="btn-primary"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
