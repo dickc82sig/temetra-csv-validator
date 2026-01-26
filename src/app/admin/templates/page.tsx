@@ -25,17 +25,29 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle,
+  Upload,
+  File,
+  Download,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
 import { getDefaultTemplate } from '@/lib/validation-rules';
 import { formatDate } from '@/lib/utils';
 
+interface TemplateDocument {
+  id: string;
+  name: string;
+  url: string;
+  size: number;
+  uploaded_at: string;
+}
+
 interface Template {
   id: string;
   name: string;
   description: string | null;
   rules: TemplateRule[];
+  documents?: TemplateDocument[];
   is_default: boolean;
   created_at: string;
   updated_at: string;
@@ -72,6 +84,7 @@ export default function AdminTemplatesPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isUploadingDoc, setIsUploadingDoc] = useState<string | null>(null);
 
   // Load templates
   useEffect(() => {
@@ -211,6 +224,113 @@ export default function AdminTemplatesPage() {
     }
   };
 
+  // Upload a document to a template
+  const uploadDocument = async (templateId: string, file: File) => {
+    const template = templates.find(t => t.id === templateId);
+    if (!template) return;
+
+    setIsUploadingDoc(templateId);
+    try {
+      const fileName = `templates/${templateId}/${Date.now()}-${file.name}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('documentation')
+        .upload(fileName, file);
+
+      if (uploadError) {
+        console.error('Storage upload error:', uploadError);
+        throw new Error('Failed to upload file. Storage may not be configured.');
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('documentation')
+        .getPublicUrl(fileName);
+
+      // Create document entry
+      const newDoc: TemplateDocument = {
+        id: `doc-${Date.now()}`,
+        name: file.name,
+        url: publicUrl,
+        size: file.size,
+        uploaded_at: new Date().toISOString(),
+      };
+
+      // Update template with new document
+      const updatedDocs = [...(template.documents || []), newDoc];
+
+      const { error: updateError } = await supabase
+        .from('validation_templates')
+        .update({
+          documents: updatedDocs,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', templateId);
+
+      if (updateError) throw updateError;
+
+      setTemplates(prev => prev.map(t =>
+        t.id === templateId ? { ...t, documents: updatedDocs } : t
+      ));
+      setMessage({ type: 'success', text: 'Document uploaded!' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      console.error('Error uploading document:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to upload document';
+      setMessage({ type: 'error', text: errorMessage });
+    } finally {
+      setIsUploadingDoc(null);
+    }
+  };
+
+  // Delete a document from a template
+  const deleteDocument = async (templateId: string, docId: string) => {
+    const template = templates.find(t => t.id === templateId);
+    if (!template) return;
+
+    const doc = template.documents?.find(d => d.id === docId);
+    if (!doc) return;
+
+    try {
+      // Extract file path from URL for deletion
+      const urlParts = doc.url.split('/documentation/');
+      if (urlParts.length > 1) {
+        const filePath = urlParts[1];
+        await supabase.storage.from('documentation').remove([filePath]);
+      }
+
+      // Update template to remove document
+      const updatedDocs = (template.documents || []).filter(d => d.id !== docId);
+
+      const { error: updateError } = await supabase
+        .from('validation_templates')
+        .update({
+          documents: updatedDocs,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', templateId);
+
+      if (updateError) throw updateError;
+
+      setTemplates(prev => prev.map(t =>
+        t.id === templateId ? { ...t, documents: updatedDocs } : t
+      ));
+      setMessage({ type: 'success', text: 'Document deleted!' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      console.error('Error deleting document:', err);
+      setMessage({ type: 'error', text: 'Failed to delete document' });
+    }
+  };
+
+  // Format file size for display
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   // Get color indicator based on rule
   const getColorIndicator = (rule: TemplateRule) => {
     if (rule.is_unique) return 'bg-purple-500';
@@ -332,6 +452,77 @@ export default function AdminTemplatesPage() {
                     <ChevronRight className="h-5 w-5 text-gray-400" />
                   )}
                 </div>
+              </div>
+
+              {/* Documents Section - Always visible */}
+              <div className="mt-4 pt-4 border-t">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-gray-700">Documents</h4>
+                  <label className={`btn-secondary text-xs flex items-center gap-1 cursor-pointer ${isUploadingDoc === template.id ? 'opacity-50' : ''}`}>
+                    {isUploadingDoc === template.id ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-3 w-3" />
+                        Upload
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                      disabled={isUploadingDoc === template.id}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          uploadDocument(template.id, file);
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                {(template.documents && template.documents.length > 0) ? (
+                  <div className="space-y-2">
+                    {template.documents.map(doc => (
+                      <div key={doc.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <File className="h-4 w-4 text-temetra-blue-600 flex-shrink-0" />
+                          <span className="truncate">{doc.name}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0">{formatFileSize(doc.size)}</span>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <a
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1 text-temetra-blue-600 hover:bg-temetra-blue-50 rounded"
+                            onClick={(e) => e.stopPropagation()}
+                            title="Download"
+                          >
+                            <Download className="h-4 w-4" />
+                          </a>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteDocument(template.id, doc.id);
+                            }}
+                            className="p-1 text-red-500 hover:bg-red-50 rounded"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 text-center py-2">No documents uploaded</p>
+                )}
               </div>
 
               {/* Expanded template view */}
