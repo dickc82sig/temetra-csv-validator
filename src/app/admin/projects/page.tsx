@@ -54,6 +54,12 @@ export default function AdminProjectsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [origin, setOrigin] = useState('');
+
+  // Set origin on client side
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   // Load projects from Supabase
   useEffect(() => {
@@ -339,17 +345,31 @@ export default function AdminProjectsPage() {
               {/* Footer info */}
               <div className="mt-4 space-y-2">
                 {/* Public link */}
-                <div className="flex items-center gap-2 text-sm">
-                  <LinkIcon className="h-4 w-4 text-gray-400" />
-                  <code className="text-xs bg-gray-100 px-2 py-1 rounded flex-1 overflow-hidden text-ellipsis">
-                    {project.public_link}
-                  </code>
-                  <button
-                    onClick={() => copyLink(project.id, project.public_link)}
-                    className="text-temetra-blue-600 hover:text-temetra-blue-700"
-                  >
-                    <Copy className="h-4 w-4" />
-                  </button>
+                <div className="text-sm">
+                  <div className="flex items-center gap-2 mb-1">
+                    <LinkIcon className="h-4 w-4 text-gray-400" />
+                    <span className="text-gray-600 font-medium">Public Link:</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <code className="text-xs bg-gray-100 px-2 py-2 rounded flex-1 break-all whitespace-normal select-all">
+                      {origin}{project.public_link}
+                    </code>
+                    <button
+                      onClick={() => copyLink(project.id, project.public_link)}
+                      className={`p-2 rounded transition-colors flex-shrink-0 ${
+                        copiedLink === project.id
+                          ? 'bg-green-100 text-green-600'
+                          : 'bg-gray-100 text-temetra-blue-600 hover:bg-gray-200'
+                      }`}
+                      title={copiedLink === project.id ? 'Copied!' : 'Copy to clipboard'}
+                    >
+                      {copiedLink === project.id ? (
+                        <CheckCircle className="h-4 w-4" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Alert status */}
