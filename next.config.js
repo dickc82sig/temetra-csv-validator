@@ -25,3 +25,4 @@ const nextConfig = {
 }
 
 module.exports = nextConfig
+// v2 deploy
