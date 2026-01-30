@@ -134,7 +134,7 @@ export interface ValidationError {
   value: string;                 // The problematic value
   rule: string;                  // Which rule was violated
   message: string;               // Human-readable error message
-  severity: 'error' | 'warning'; // How serious is it?
+  severity: 'error' | 'warning' | 'note'; // How serious is it? Notes are informational for non-required columns.
   notes?: string;                // Related notes/instructions from the template
 }
 

@@ -280,6 +280,7 @@ export default function AdminUsersPage() {
     setFormData({
       name: user.name,
       email: user.email,
+      password: '',
       role: user.role,
       company_name: user.company_name || '',
     });

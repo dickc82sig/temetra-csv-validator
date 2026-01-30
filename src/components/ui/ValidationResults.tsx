@@ -51,6 +51,7 @@ export default function ValidationResults({ results, onDownloadReport }: Validat
    */
   const errorsByColumn: Record<string, ValidationError[]> = {};
   const warningsByColumn: Record<string, ValidationError[]> = {};
+  const notesByColumn: Record<string, ValidationError[]> = {};
 
   results.errors.forEach(error => {
     if (error.severity === 'error') {
@@ -58,6 +59,11 @@ export default function ValidationResults({ results, onDownloadReport }: Validat
         errorsByColumn[error.column] = [];
       }
       errorsByColumn[error.column].push(error);
+    } else if (error.severity === 'note') {
+      if (!notesByColumn[error.column]) {
+        notesByColumn[error.column] = [];
+      }
+      notesByColumn[error.column].push(error);
     } else {
       if (!warningsByColumn[error.column]) {
         warningsByColumn[error.column] = [];
@@ -65,6 +71,8 @@ export default function ValidationResults({ results, onDownloadReport }: Validat
       warningsByColumn[error.column].push(error);
     }
   });
+
+  const totalNotes = results.errors.filter(e => e.severity === 'note').length;
 
   return (
     <div className="space-y-6">
@@ -105,6 +113,12 @@ export default function ValidationResults({ results, onDownloadReport }: Validat
                 <div className="flex items-center gap-1">
                   <AlertTriangle className="h-4 w-4 text-yellow-500" />
                   <span className="text-yellow-600">{results.totalWarnings} warnings</span>
+                </div>
+              )}
+              {totalNotes > 0 && (
+                <div className="flex items-center gap-1">
+                  <Info className="h-4 w-4 text-blue-500" />
+                  <span className="text-blue-600">{totalNotes} notes</span>
                 </div>
               )}
             </div>
@@ -220,6 +234,35 @@ export default function ValidationResults({ results, onDownloadReport }: Validat
         </div>
       )}
 
+      {/* Notes by Column (informational, non-required fields) */}
+      {Object.keys(notesByColumn).length > 0 && (
+        <div className="card">
+          <button
+            onClick={() => toggleGroup('notes')}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Info className="h-5 w-5 text-blue-500" />
+              <h3 className="font-semibold text-gray-900">Notes ({totalNotes})</h3>
+              <span className="text-xs text-gray-500 font-normal">— informational, from optional columns</span>
+            </div>
+            {expandedGroups.has('notes') ? (
+              <ChevronDown className="h-5 w-5 text-gray-400" />
+            ) : (
+              <ChevronRight className="h-5 w-5 text-gray-400" />
+            )}
+          </button>
+
+          {expandedGroups.has('notes') && (
+            <div className="mt-4 space-y-4">
+              {Object.entries(notesByColumn).map(([column, errors]) => (
+                <ErrorGroup key={column} column={column} errors={errors} type="note" />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Success message when no errors */}
       {results.isValid && results.totalWarnings === 0 && (
         <div className="text-center py-8">
@@ -244,9 +287,9 @@ function ErrorGroup({
 }: {
   column: string;
   errors: ValidationError[];
-  type: 'error' | 'warning';
+  type: 'error' | 'warning' | 'note';
 }) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(type !== 'note');
   const [showAll, setShowAll] = useState(false);
 
   // Limit displayed errors to prevent overwhelming the UI
@@ -254,9 +297,9 @@ function ErrorGroup({
   const displayedErrors = showAll ? errors : errors.slice(0, displayLimit);
   const hiddenCount = errors.length - displayLimit;
 
-  const bgColor = type === 'error' ? 'bg-red-50' : 'bg-yellow-50';
-  const borderColor = type === 'error' ? 'border-red-200' : 'border-yellow-200';
-  const textColor = type === 'error' ? 'text-red-800' : 'text-yellow-800';
+  const bgColor = type === 'error' ? 'bg-red-50' : type === 'note' ? 'bg-blue-50' : 'bg-yellow-50';
+  const borderColor = type === 'error' ? 'border-red-200' : type === 'note' ? 'border-blue-200' : 'border-yellow-200';
+  const textColor = type === 'error' ? 'text-red-800' : type === 'note' ? 'text-blue-800' : 'text-yellow-800';
 
   // Get the notes from the first error (they should all be the same for this column)
   const columnNotes = errors[0]?.notes;

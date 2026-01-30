@@ -98,6 +98,10 @@ export function validateCSV(
       const columnName = rule.column_name.toUpperCase();
       const value = row[columnName]?.trim() || '';
 
+      // For non-required columns, validation issues are reported as notes (informational)
+      // For required columns, validation issues are errors
+      const severityForRule = rule.is_required ? 'error' : 'note';
+
       // Skip if column doesn't exist (already reported as missing)
       if (!actualColumns.includes(columnName)) {
         return;
@@ -132,7 +136,7 @@ export function validateCSV(
             value: value,
             rule: 'unique',
             message: `"${rule.column_name}" must be unique, but "${value}" appears more than once`,
-            severity: 'error',
+            severity: severityForRule,
             notes: rule.notes,
           });
         } else {
@@ -148,7 +152,7 @@ export function validateCSV(
           value: value,
           rule: 'min_length',
           message: `"${rule.column_name}" must be at least ${rule.min_length} characters (got ${value.length})`,
-          severity: 'error',
+          severity: severityForRule,
           notes: rule.notes,
         });
       }
@@ -161,7 +165,7 @@ export function validateCSV(
           value: value,
           rule: 'max_length',
           message: `"${rule.column_name}" must be at most ${rule.max_length} characters (got ${value.length})`,
-          severity: 'error',
+          severity: severityForRule,
           notes: rule.notes,
         });
       }
@@ -176,7 +180,7 @@ export function validateCSV(
             value: value,
             rule: 'data_type',
             message: `"${rule.column_name}" must be yes/no or true/false (got "${value}")`,
-            severity: 'error',
+            severity: severityForRule,
             notes: rule.notes,
           });
         }
@@ -193,7 +197,7 @@ export function validateCSV(
             value: value,
             rule: 'invalid_characters',
             message: `"${rule.column_name}" contains invalid characters: ${foundInvalid.join(', ')}`,
-            severity: 'error',
+            severity: severityForRule,
             notes: rule.notes,
           });
         }
@@ -210,7 +214,7 @@ export function validateCSV(
               value: value,
               rule: 'pattern',
               message: `"${rule.column_name}" doesn't match the required format`,
-              severity: 'error',
+              severity: severityForRule,
               notes: rule.notes,
             });
           }
@@ -233,7 +237,7 @@ export function validateCSV(
               message: rule.custom_rule
                 ? `"${rule.column_name}" failed validation: ${rule.custom_rule}`
                 : `"${rule.column_name}" doesn't match the custom format rule`,
-              severity: 'error',
+              severity: severityForRule,
               notes: rule.notes,
             });
           }
@@ -375,14 +379,22 @@ export function validateCSV(
   // Step 4: Build the result summary
   const errorCount = errors.filter(e => e.severity === 'error').length;
   const warningCount = errors.filter(e => e.severity === 'warning').length;
+  const noteCount = errors.filter(e => e.severity === 'note').length;
 
   let summary = '';
-  if (errorCount === 0 && warningCount === 0) {
+  if (errorCount === 0 && warningCount === 0 && noteCount === 0) {
     summary = `Success! All ${rows.length} rows passed validation.`;
   } else if (errorCount === 0) {
-    summary = `Validation passed with ${warningCount} warning(s). ${rows.length} rows checked.`;
+    const extras = [];
+    if (warningCount > 0) extras.push(`${warningCount} warning(s)`);
+    if (noteCount > 0) extras.push(`${noteCount} note(s)`);
+    summary = `Validation passed with ${extras.join(' and ')}. ${rows.length} rows checked.`;
   } else {
-    summary = `Validation failed with ${errorCount} error(s) and ${warningCount} warning(s). ${rows.length} rows checked.`;
+    const extras = [];
+    extras.push(`${errorCount} error(s)`);
+    if (warningCount > 0) extras.push(`${warningCount} warning(s)`);
+    if (noteCount > 0) extras.push(`${noteCount} note(s)`);
+    summary = `Validation failed with ${extras.join(', ')}. ${rows.length} rows checked.`;
   }
 
   if (missingColumns.length > 0) {

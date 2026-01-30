@@ -25,6 +25,7 @@ import {
   Upload,
   File,
   Download,
+  Sparkles,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
@@ -80,6 +81,9 @@ export default function TemplateEditPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [aiRuleInput, setAiRuleInput] = useState<Record<string, string>>({});
+  const [aiRuleLoading, setAiRuleLoading] = useState<string | null>(null);
+  const [aiRuleError, setAiRuleError] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadTemplate();
@@ -273,6 +277,56 @@ export default function TemplateEditPage() {
     const newEdited = { ...editedRules };
     delete newEdited[ruleId];
     setEditedRules(newEdited);
+  };
+
+  // Generate a custom rule using AI from natural language
+  const generateAiRule = async (ruleId: string) => {
+    const input = aiRuleInput[ruleId];
+    if (!input?.trim()) return;
+
+    const currentRule = editedRules[ruleId] || template?.rules.find(r => r.id === ruleId);
+    if (!currentRule) return;
+
+    setAiRuleLoading(ruleId);
+    setAiRuleError(prev => ({ ...prev, [ruleId]: '' }));
+
+    try {
+      const response = await fetch('/api/admin/ai-rule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: input,
+          columnName: currentRule.column_name,
+          dataType: currentRule.data_type,
+          example: currentRule.example,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate rule');
+      }
+
+      // Apply the AI-generated rule
+      if (data.regex) {
+        updateRule(ruleId, 'custom_rule_regex', data.regex);
+      }
+      if (data.description) {
+        updateRule(ruleId, 'custom_rule', data.description);
+      }
+      if (data.example && !currentRule.example) {
+        updateRule(ruleId, 'example', data.example);
+      }
+
+      // Clear the AI input after success
+      setAiRuleInput(prev => ({ ...prev, [ruleId]: '' }));
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate rule';
+      setAiRuleError(prev => ({ ...prev, [ruleId]: errorMessage }));
+    } finally {
+      setAiRuleLoading(null);
+    }
   };
 
   // Upload a document to the template
@@ -603,21 +657,62 @@ export default function TemplateEditPage() {
                           </select>
                         </td>
                         <td className="border px-3 py-2">
-                          <div className="space-y-1">
-                            <input
-                              type="text"
-                              value={editedRule.custom_rule || ''}
-                              onChange={e => updateRule(rule.id, 'custom_rule', e.target.value)}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                              placeholder="Description"
-                            />
-                            <input
-                              type="text"
-                              value={editedRule.custom_rule_regex || ''}
-                              onChange={e => updateRule(rule.id, 'custom_rule_regex', e.target.value)}
-                              className="w-full px-2 py-1 border rounded text-sm font-mono"
-                              placeholder="Regex pattern"
-                            />
+                          <div className="space-y-2">
+                            {/* AI Natural Language Input */}
+                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-2">
+                              <label className="flex items-center gap-1 text-xs font-medium text-purple-700 mb-1">
+                                <Sparkles className="h-3 w-3" />
+                                Describe rule in plain English
+                              </label>
+                              <div className="flex gap-1">
+                                <input
+                                  type="text"
+                                  value={aiRuleInput[rule.id] || ''}
+                                  onChange={e => setAiRuleInput(prev => ({ ...prev, [rule.id]: e.target.value }))}
+                                  className="flex-1 px-2 py-1 border border-purple-300 rounded text-sm"
+                                  placeholder='e.g., "only allow yes, no, or N/A"'
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      generateAiRule(rule.id);
+                                    }
+                                  }}
+                                />
+                                <button
+                                  onClick={() => generateAiRule(rule.id)}
+                                  disabled={aiRuleLoading === rule.id || !aiRuleInput[rule.id]?.trim()}
+                                  className="px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1 whitespace-nowrap"
+                                >
+                                  {aiRuleLoading === rule.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Sparkles className="h-3 w-3" />
+                                  )}
+                                  Generate
+                                </button>
+                              </div>
+                              {aiRuleError[rule.id] && (
+                                <p className="text-xs text-red-600 mt-1">{aiRuleError[rule.id]}</p>
+                              )}
+                            </div>
+
+                            {/* Manual Rule Fields (populated by AI or manual entry) */}
+                            <div className="space-y-1">
+                              <input
+                                type="text"
+                                value={editedRule.custom_rule || ''}
+                                onChange={e => updateRule(rule.id, 'custom_rule', e.target.value)}
+                                className="w-full px-2 py-1 border rounded text-sm"
+                                placeholder="Rule description (for error messages)"
+                              />
+                              <input
+                                type="text"
+                                value={editedRule.custom_rule_regex || ''}
+                                onChange={e => updateRule(rule.id, 'custom_rule_regex', e.target.value)}
+                                className="w-full px-2 py-1 border rounded text-sm font-mono"
+                                placeholder="Regex pattern (auto-generated or manual)"
+                              />
+                            </div>
                           </div>
                         </td>
                         <td className="border px-3 py-2">
