@@ -45,6 +45,9 @@ export default function ProjectRulesPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [editingRule, setEditingRule] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [aiRuleInput, setAiRuleInput] = useState<Record<string, string>>({});
+  const [aiRuleLoading, setAiRuleLoading] = useState<string | null>(null);
+  const [aiRuleError, setAiRuleError] = useState<Record<string, string>>({});
 
   // Load project and rules
   useEffect(() => {
@@ -110,6 +113,50 @@ export default function ProjectRulesPage() {
   // Remove a rule
   const removeRule = (columnName: string) => {
     setRules(prev => prev.filter(rule => rule.columnName !== columnName));
+  };
+
+  // Generate a custom rule using AI from natural language
+  const generateAiRule = async (columnName: string) => {
+    const input = aiRuleInput[columnName];
+    if (!input?.trim()) return;
+
+    const currentRule = rules.find(r => r.columnName === columnName);
+    if (!currentRule) return;
+
+    setAiRuleLoading(columnName);
+    setAiRuleError(prev => ({ ...prev, [columnName]: '' }));
+
+    try {
+      const response = await fetch('/api/admin/ai-rule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: input,
+          columnName: currentRule.columnName,
+          dataType: currentRule.dataType,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate rule');
+      }
+
+      if (data.regex) {
+        updateRule(columnName, { pattern: data.regex });
+      }
+      if (data.description) {
+        updateRule(columnName, { description: data.description });
+      }
+
+      setAiRuleInput(prev => ({ ...prev, [columnName]: '' }));
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate rule';
+      setAiRuleError(prev => ({ ...prev, [columnName]: errorMessage }));
+    } finally {
+      setAiRuleLoading(null);
+    }
   };
 
   // Save rules
@@ -355,30 +402,78 @@ export default function ProjectRulesPage() {
                           />
                         </td>
                         <td className="border px-3 py-2">
-                          <div className="space-y-1">
-                            <div className="flex gap-2">
+                          <div className="space-y-2">
+                            {/* AI Natural Language Input */}
+                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-2">
+                              <label className="flex items-center gap-1 text-xs font-medium text-purple-700 mb-1">
+                                <Sparkles className="h-3 w-3" />
+                                Describe rule in plain English
+                              </label>
+                              <div className="flex gap-1">
+                                <input
+                                  type="text"
+                                  value={aiRuleInput[rule.columnName] || ''}
+                                  onChange={e => setAiRuleInput(prev => ({ ...prev, [rule.columnName]: e.target.value }))}
+                                  className="flex-1 px-2 py-1 border border-purple-300 rounded text-sm"
+                                  placeholder='e.g., "only allow yes, no, or N/A"'
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      generateAiRule(rule.columnName);
+                                    }
+                                  }}
+                                />
+                                <button
+                                  onClick={() => generateAiRule(rule.columnName)}
+                                  disabled={aiRuleLoading === rule.columnName || !aiRuleInput[rule.columnName]?.trim()}
+                                  className="px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1 whitespace-nowrap"
+                                >
+                                  {aiRuleLoading === rule.columnName ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Sparkles className="h-3 w-3" />
+                                  )}
+                                  Generate
+                                </button>
+                              </div>
+                              {aiRuleError[rule.columnName] && (
+                                <p className="text-xs text-red-600 mt-1">{aiRuleError[rule.columnName]}</p>
+                              )}
+                            </div>
+
+                            {/* Manual Rule Fields */}
+                            <div className="space-y-1">
+                              <div className="flex gap-2">
+                                <input
+                                  type="number"
+                                  value={rule.minLength || ''}
+                                  onChange={e => updateRule(rule.columnName, { minLength: e.target.value ? parseInt(e.target.value) : undefined })}
+                                  className="w-20 px-2 py-1 border rounded text-sm"
+                                  placeholder="Min len"
+                                />
+                                <input
+                                  type="number"
+                                  value={rule.maxLength || ''}
+                                  onChange={e => updateRule(rule.columnName, { maxLength: e.target.value ? parseInt(e.target.value) : undefined })}
+                                  className="w-20 px-2 py-1 border rounded text-sm"
+                                  placeholder="Max len"
+                                />
+                              </div>
                               <input
-                                type="number"
-                                value={rule.minLength || ''}
-                                onChange={e => updateRule(rule.columnName, { minLength: e.target.value ? parseInt(e.target.value) : undefined })}
-                                className="w-20 px-2 py-1 border rounded text-sm"
-                                placeholder="Min len"
+                                type="text"
+                                value={rule.description || ''}
+                                onChange={e => updateRule(rule.columnName, { description: e.target.value })}
+                                className="w-full px-2 py-1 border rounded text-sm"
+                                placeholder="Rule description (for error messages)"
                               />
                               <input
-                                type="number"
-                                value={rule.maxLength || ''}
-                                onChange={e => updateRule(rule.columnName, { maxLength: e.target.value ? parseInt(e.target.value) : undefined })}
-                                className="w-20 px-2 py-1 border rounded text-sm"
-                                placeholder="Max len"
+                                type="text"
+                                value={rule.pattern || ''}
+                                onChange={e => updateRule(rule.columnName, { pattern: e.target.value || undefined })}
+                                className="w-full px-2 py-1 border rounded text-sm font-mono"
+                                placeholder="Regex pattern (auto-generated or manual)"
                               />
                             </div>
-                            <input
-                              type="text"
-                              value={rule.pattern || ''}
-                              onChange={e => updateRule(rule.columnName, { pattern: e.target.value || undefined })}
-                              className="w-full px-2 py-1 border rounded text-sm font-mono"
-                              placeholder="Regex pattern"
-                            />
                           </div>
                         </td>
                         <td className="border px-3 py-2">
