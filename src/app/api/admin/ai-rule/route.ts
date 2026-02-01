@@ -2,22 +2,20 @@
  * AI Rule Generation API Route
  * Copyright (c) 2024 Vanzora, LLC. All rights reserved.
  *
- * Takes a natural language rule description and uses Claude to generate
+ * Takes a natural language rule description and uses Google Gemini to generate
  * both a regex pattern and a human-readable rule description.
  */
 
 import { NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
-});
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_KEY || '');
 
 export async function POST(request: Request) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.GOOGLE_GENERATIVE_AI_KEY) {
       return NextResponse.json(
-        { error: 'Anthropic API key not configured. Please add ANTHROPIC_API_KEY to your environment variables.' },
+        { error: 'Google AI API key not configured. Please add GOOGLE_GENERATIVE_AI_KEY to your environment variables.' },
         { status: 500 }
       );
     }
@@ -57,26 +55,9 @@ Examples:
 - Input: "has to start with 2 letters followed by numbers"
   Output: {"regex": "^[A-Za-z]{2}\\d+$", "description": "Must start with 2 letters followed by numbers", "example": "AB12345"}`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    });
-
-    const responseText = message.content
-      .filter((block) => block.type === 'text')
-      .map((block) => {
-        if (block.type === 'text') {
-          return block.text;
-        }
-        return '';
-      })
-      .join('');
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
 
     // Parse the JSON response
     let jsonText = responseText.trim();
@@ -91,12 +72,12 @@ Examples:
     }
     jsonText = jsonText.trim();
 
-    const result = JSON.parse(jsonText);
+    const parsed = JSON.parse(jsonText);
 
     // Validate the regex if provided
-    if (result.regex) {
+    if (parsed.regex) {
       try {
-        new RegExp(result.regex);
+        new RegExp(parsed.regex);
       } catch {
         return NextResponse.json(
           { error: 'AI generated an invalid regex pattern. Please try rephrasing your rule.' },
@@ -107,19 +88,12 @@ Examples:
 
     return NextResponse.json({
       success: true,
-      regex: result.regex || null,
-      description: result.description || description,
-      example: result.example || '',
+      regex: parsed.regex || null,
+      description: parsed.description || description,
+      example: parsed.example || '',
     });
   } catch (error) {
     console.error('AI rule generation error:', error);
-
-    if (error instanceof Anthropic.APIError) {
-      return NextResponse.json(
-        { error: `API error: ${error.message}` },
-        { status: error.status || 500 }
-      );
-    }
 
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to generate rule' },
