@@ -55,7 +55,7 @@ Examples:
 - Input: "has to start with 2 letters followed by numbers"
   Output: {"regex": "^[A-Za-z]{2}\\d+$", "description": "Must start with 2 letters followed by numbers", "example": "AB12345"}`;
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
     const result = await model.generateContent(prompt);
     const responseText = result.response.text();
 
