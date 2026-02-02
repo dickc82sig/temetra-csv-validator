@@ -277,3 +277,72 @@ export async function sendAdminNotificationEmail(
     return false;
   }
 }
+
+/**
+ * Send template update notification to project admin
+ *
+ * @param adminEmail - Admin email address
+ * @param projectName - Name of the affected project
+ * @param templateName - Name of the updated template
+ */
+export async function sendTemplateUpdateEmail(
+  adminEmail: string,
+  projectName: string,
+  templateName: string
+): Promise<boolean> {
+  try {
+    const transporter = createTransporter();
+
+    const subject = `[${projectName}] Validation Template Updated - ${templateName}`;
+
+    const htmlBody = `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .alert { padding: 15px; border-radius: 8px; margin-bottom: 15px; background: #dbeafe; border: 1px solid #93c5fd; color: #1e40af; }
+    .info { background: #f9fafb; padding: 15px; border-radius: 8px; border: 1px solid #e5e7eb; }
+    .footer { margin-top: 20px; font-size: 12px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Validation Template Updated</h2>
+
+    <div class="alert">
+      The validation template <strong>${templateName}</strong> has been updated.
+    </div>
+
+    <div class="info">
+      <p><strong>Project:</strong> ${projectName}</p>
+      <p><strong>Template:</strong> ${templateName}</p>
+      <p><strong>Updated at:</strong> ${new Date().toLocaleString()}</p>
+    </div>
+
+    <p>The validation rules for your project have been automatically updated. Any new CSV uploads will be validated against the updated rules.</p>
+
+    <p>Log in to the admin dashboard to review the changes.</p>
+
+    <div class="footer">
+      <p>&copy; ${new Date().getFullYear()} Vanzora, LLC. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+    await transporter.sendMail({
+      from: `"${fromName}" <${fromAddress}>`,
+      to: adminEmail,
+      subject: subject,
+      html: htmlBody,
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Failed to send template update notification:', error);
+    return false;
+  }
+}

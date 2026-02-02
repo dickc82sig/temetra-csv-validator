@@ -7,13 +7,20 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
 import { createSlug } from '@/lib/utils';
+
+interface TemplateOption {
+  id: string;
+  name: string;
+  description: string | null;
+  ruleCount: number;
+}
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -24,8 +31,11 @@ export default function NewProjectPage() {
     description: '',
     adminEmail: '',
     alertOnUpload: true,
+    templateId: '',
   });
 
+  const [templates, setTemplates] = useState<TemplateOption[]>([]);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -33,10 +43,50 @@ export default function NewProjectPage() {
   const slug = createSlug(formData.name);
   const publicLink = slug ? `/validate/${slug}` : '';
 
+  // Load available templates
+  useEffect(() => {
+    const loadTemplates = async () => {
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('validation_templates')
+          .select('id, name, description, rules')
+          .eq('is_active', true)
+          .order('name');
+
+        if (fetchError) {
+          console.error('Error loading templates:', fetchError);
+          return;
+        }
+
+        if (data) {
+          const options: TemplateOption[] = data.map(t => ({
+            id: t.id,
+            name: t.name,
+            description: t.description,
+            ruleCount: Array.isArray(t.rules) ? t.rules.length : 0,
+          }));
+          setTemplates(options);
+
+          // Auto-select the first template (or default)
+          const defaultTemplate = data.find(t => (t as Record<string, unknown>).is_default) || data[0];
+          if (defaultTemplate) {
+            setFormData(prev => ({ ...prev, templateId: defaultTemplate.id }));
+          }
+        }
+      } catch (err) {
+        console.error('Error loading templates:', err);
+      } finally {
+        setIsLoadingTemplates(false);
+      }
+    };
+
+    loadTemplates();
+  }, []);
+
   /**
    * Handle form field changes
    */
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     setFormData(prev => ({
       ...prev,
@@ -61,54 +111,15 @@ export default function NewProjectPage() {
       return;
     }
 
+    if (!formData.templateId) {
+      setError('Please select a validation template');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // First, get or create a default validation template
-      let templateId: string | null = null;
-
-      // Try to get an existing template
-      const { data: existingTemplates, error: fetchError } = await supabase
-        .from('validation_templates')
-        .select('id')
-        .limit(1);
-
-      if (fetchError) {
-        console.error('Fetch template error:', fetchError);
-      }
-
-      if (existingTemplates && existingTemplates.length > 0) {
-        templateId = existingTemplates[0].id;
-      } else {
-        // Create a default template
-        const { data: newTemplate, error: templateError } = await supabase
-          .from('validation_templates')
-          .insert({
-            name: 'Default Template',
-            description: 'Default validation template',
-            is_default: true,
-            rules: [],
-          })
-          .select('id')
-          .single();
-
-        if (templateError) {
-          console.error('Template creation error:', templateError);
-          setError('No validation template exists. Please run the SQL setup in Supabase to create a default template, or ask an admin to create one.');
-          return;
-        }
-
-        if (newTemplate) {
-          templateId = newTemplate.id;
-        }
-      }
-
-      if (!templateId) {
-        setError('No validation template found. Please create a template first in Admin > Templates.');
-        return;
-      }
-
-      // Insert the new project
+      // Insert the new project with the selected template
       const { data, error: insertError } = await supabase
         .from('projects')
         .insert({
@@ -116,7 +127,7 @@ export default function NewProjectPage() {
           slug: slug,
           description: formData.description.trim() || null,
           public_link: publicLink,
-          validation_template_id: templateId,
+          validation_template_id: formData.templateId,
           alert_on_upload: formData.alertOnUpload,
           admin_email: formData.adminEmail.trim(),
           is_active: true,
@@ -218,6 +229,44 @@ export default function NewProjectPage() {
               />
             </div>
 
+            {/* Validation Template Selector */}
+            <div>
+              <label htmlFor="templateId" className="block text-sm font-medium text-gray-700">
+                Validation Template <span className="text-red-500">*</span>
+              </label>
+              {isLoadingTemplates ? (
+                <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading templates...
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="mt-1 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-700">
+                  No templates found. Please <Link href="/admin/templates" className="underline font-medium">create a template</Link> first.
+                </div>
+              ) : (
+                <>
+                  <select
+                    id="templateId"
+                    name="templateId"
+                    value={formData.templateId}
+                    onChange={handleChange}
+                    className="input-field mt-1"
+                    required
+                  >
+                    <option value="">Select a template...</option>
+                    {templates.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.ruleCount} columns)
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    This template defines the CSV columns and validation rules for this project.
+                  </p>
+                </>
+              )}
+            </div>
+
             {/* Admin Email */}
             <div>
               <label htmlFor="adminEmail" className="block text-sm font-medium text-gray-700">
@@ -261,7 +310,7 @@ export default function NewProjectPage() {
             </Link>
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || !formData.templateId}
               className="btn-primary flex items-center gap-2"
             >
               {isLoading ? (

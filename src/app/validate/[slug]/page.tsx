@@ -30,9 +30,10 @@ import {
 import FileUpload from '@/components/ui/FileUpload';
 import ValidationResults from '@/components/ui/ValidationResults';
 import { validateCSV, ValidationResult } from '@/lib/csv-validator';
-import { getDefaultTemplate } from '@/lib/validation-rules';
+import { getDefaultTemplate, dbTemplateToValidationTemplate } from '@/lib/validation-rules';
 import { supabase } from '@/lib/supabase';
 import { isValidEmail, isAlex, getGreeting } from '@/lib/utils';
+import { ValidationTemplate } from '@/types';
 
 interface Project {
   id: string;
@@ -41,6 +42,7 @@ interface Project {
   slug: string;
   template_csv_url: string | null;
   documentation_url: string | null;
+  validation_template_id: string | null;
 }
 
 interface FormatColumn {
@@ -57,6 +59,7 @@ export default function PublicValidationPage() {
 
   // Project state
   const [project, setProject] = useState<Project | null>(null);
+  const [validationTemplate, setValidationTemplate] = useState<ValidationTemplate | null>(null);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   const [projectNotFound, setProjectNotFound] = useState(false);
 
@@ -80,9 +83,9 @@ export default function PublicValidationPage() {
   const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [captchaQuestion, setCaptchaQuestion] = useState({ a: 0, b: 0, answer: 0 });
 
-  // Get format columns from template
-  const template = getDefaultTemplate();
-  const formatColumns: FormatColumn[] = template.rules.map(rule => ({
+  // Get format columns from template (use project's template or fallback to default)
+  const activeTemplate = validationTemplate || getDefaultTemplate();
+  const formatColumns: FormatColumn[] = activeTemplate.rules.map(rule => ({
     name: rule.column_name,
     required: rule.is_required,
     type: rule.data_type,
@@ -90,13 +93,13 @@ export default function PublicValidationPage() {
     description: rule.notes,
   }));
 
-  // Load project from Supabase
+  // Load project and its template from Supabase
   useEffect(() => {
     const loadProject = async () => {
       try {
         const { data, error } = await supabase
           .from('projects')
-          .select('id, name, description, slug, template_csv_url, documentation_url')
+          .select('id, name, description, slug, template_csv_url, documentation_url, validation_template_id')
           .eq('slug', slug)
           .eq('is_active', true)
           .single();
@@ -105,6 +108,19 @@ export default function PublicValidationPage() {
           setProjectNotFound(true);
         } else {
           setProject(data);
+
+          // Load the project's assigned template
+          if (data.validation_template_id) {
+            const { data: templateData } = await supabase
+              .from('validation_templates')
+              .select('*')
+              .eq('id', data.validation_template_id)
+              .single();
+
+            if (templateData && templateData.rules) {
+              setValidationTemplate(dbTemplateToValidationTemplate(templateData));
+            }
+          }
         }
       } catch (err) {
         console.error('Error loading project:', err);
@@ -282,8 +298,8 @@ export default function PublicValidationPage() {
     try {
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const template = getDefaultTemplate();
-      const results = validateCSV(fileContent, template);
+      const templateForValidation = validationTemplate || getDefaultTemplate();
+      const results = validateCSV(fileContent, templateForValidation);
 
       setValidationResults(results);
     } catch {

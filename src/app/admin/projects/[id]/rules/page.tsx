@@ -2,7 +2,9 @@
  * Project Validation Rules Page
  * Copyright (c) 2024 Vanzora, LLC. All rights reserved.
  *
- * This page allows admins to configure validation rules for a project.
+ * This page allows admins to view and modify a project's validation rules.
+ * Rules are loaded from the project's assigned template.
+ * Changes are saved as a new template (save-as-new flow).
  */
 
 'use client';
@@ -23,14 +25,38 @@ import {
   X,
   HelpCircle,
   Sparkles,
+  ChevronDown,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
-import { DEFAULT_VALIDATION_RULES, ProjectValidationRule } from '@/lib/validation-rules';
+
+interface TemplateRule {
+  id: string;
+  column_name: string;
+  column_index: number;
+  is_required: boolean;
+  allow_blank: boolean;
+  is_unique: boolean;
+  min_length?: number;
+  max_length?: number;
+  data_type: string;
+  notes?: string;
+  example?: string;
+  color_code?: string;
+  custom_rule?: string;
+  custom_rule_regex?: string;
+}
+
+interface TemplateOption {
+  id: string;
+  name: string;
+  ruleCount: number;
+}
 
 interface Project {
   id: string;
   name: string;
+  validation_template_id: string;
 }
 
 export default function ProjectRulesPage() {
@@ -39,49 +65,72 @@ export default function ProjectRulesPage() {
   const projectId = params.id as string;
 
   const [project, setProject] = useState<Project | null>(null);
-  const [rules, setRules] = useState<ProjectValidationRule[]>([]);
+  const [rules, setRules] = useState<TemplateRule[]>([]);
+  const [currentTemplateName, setCurrentTemplateName] = useState('');
+  const [currentTemplateId, setCurrentTemplateId] = useState('');
+  const [templates, setTemplates] = useState<TemplateOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [editingRule, setEditingRule] = useState<string | null>(null);
+  const [editedRules, setEditedRules] = useState<Record<string, TemplateRule>>({});
   const [showHelp, setShowHelp] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
   const [aiRuleInput, setAiRuleInput] = useState<Record<string, string>>({});
   const [aiRuleLoading, setAiRuleLoading] = useState<string | null>(null);
   const [aiRuleError, setAiRuleError] = useState<Record<string, string>>({});
 
-  // Load project and rules
+  // Load project, template, and template list
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Try to load project from Supabase
+        // Load project
         const { data: projectData } = await supabase
           .from('projects')
-          .select('id, name')
+          .select('id, name, validation_template_id')
           .eq('id', projectId)
           .single();
 
-        if (projectData) {
-          setProject(projectData);
-        } else {
+        if (!projectData) {
           setProject(null);
+          setIsLoading(false);
+          return;
         }
 
-        // Load saved rules or use defaults
-        const { data: templateData } = await supabase
-          .from('validation_templates')
-          .select('rules')
-          .eq('project_id', projectId)
-          .single();
+        setProject(projectData);
 
-        if (templateData?.rules) {
-          setRules(templateData.rules);
-        } else {
-          // Use default rules
-          setRules(DEFAULT_VALIDATION_RULES);
+        // Load all templates for dropdown
+        const { data: allTemplates } = await supabase
+          .from('validation_templates')
+          .select('id, name, rules')
+          .eq('is_active', true)
+          .order('name');
+
+        if (allTemplates) {
+          setTemplates(allTemplates.map(t => ({
+            id: t.id,
+            name: t.name,
+            ruleCount: Array.isArray(t.rules) ? t.rules.length : 0,
+          })));
+        }
+
+        // Load the assigned template's rules
+        if (projectData.validation_template_id) {
+          const { data: templateData } = await supabase
+            .from('validation_templates')
+            .select('id, name, rules')
+            .eq('id', projectData.validation_template_id)
+            .single();
+
+          if (templateData) {
+            setCurrentTemplateId(templateData.id);
+            setCurrentTemplateName(templateData.name);
+            setRules(templateData.rules || []);
+          }
         }
       } catch (err) {
         console.error('Error loading data:', err);
-        setRules(DEFAULT_VALIDATION_RULES);
       } finally {
         setIsLoading(false);
       }
@@ -90,41 +139,90 @@ export default function ProjectRulesPage() {
     loadData();
   }, [projectId]);
 
-  // Update a rule
-  const updateRule = (columnName: string, updates: Partial<ProjectValidationRule>) => {
-    setRules(prev => prev.map(rule =>
-      rule.columnName === columnName ? { ...rule, ...updates } : rule
-    ));
+  // Switch template via dropdown
+  const handleTemplateChange = async (templateId: string) => {
+    if (!templateId || templateId === currentTemplateId) return;
+
+    try {
+      // Load the new template's rules
+      const { data: templateData } = await supabase
+        .from('validation_templates')
+        .select('id, name, rules')
+        .eq('id', templateId)
+        .single();
+
+      if (templateData) {
+        // Update project to point to new template
+        const { error: updateError } = await supabase
+          .from('projects')
+          .update({ validation_template_id: templateId })
+          .eq('id', projectId);
+
+        if (updateError) throw updateError;
+
+        setCurrentTemplateId(templateData.id);
+        setCurrentTemplateName(templateData.name);
+        setRules(templateData.rules || []);
+        setEditedRules({});
+        setEditingRule(null);
+        setMessage({ type: 'success', text: `Switched to template "${templateData.name}"` });
+        setTimeout(() => setMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error('Error switching template:', err);
+      setMessage({ type: 'error', text: 'Failed to switch template' });
+    }
+  };
+
+  // Get the effective rule (edited or original)
+  const getEffectiveRule = (rule: TemplateRule) => editedRules[rule.id] || rule;
+
+  // Update a rule field
+  const updateRule = (ruleId: string, field: string, value: string | number | boolean | undefined) => {
+    setEditedRules(prev => {
+      const currentRule = prev[ruleId] || rules.find(r => r.id === ruleId);
+      if (!currentRule) return prev;
+      return {
+        ...prev,
+        [ruleId]: { ...currentRule, [field]: value },
+      };
+    });
   };
 
   // Add a new rule
-  const addRule = () => {
-    const newRule: ProjectValidationRule = {
-      columnName: `Column_${rules.length + 1}`,
-      displayName: `New Column ${rules.length + 1}`,
-      required: false,
-      dataType: 'string',
-      description: 'New column',
+  const addNewRule = () => {
+    const newRule: TemplateRule = {
+      id: `rule-${Date.now()}`,
+      column_name: 'New Column',
+      column_index: rules.length,
+      is_required: false,
+      allow_blank: true,
+      is_unique: false,
+      data_type: 'text',
     };
     setRules(prev => [...prev, newRule]);
-    setEditingRule(newRule.columnName);
+    setEditedRules(prev => ({ ...prev, [newRule.id]: newRule }));
+    setEditingRule(newRule.id);
   };
 
   // Remove a rule
-  const removeRule = (columnName: string) => {
-    setRules(prev => prev.filter(rule => rule.columnName !== columnName));
+  const removeRule = (ruleId: string) => {
+    setRules(prev => prev.filter(r => r.id !== ruleId));
+    const newEdited = { ...editedRules };
+    delete newEdited[ruleId];
+    setEditedRules(newEdited);
   };
 
-  // Generate a custom rule using AI from natural language
-  const generateAiRule = async (columnName: string) => {
-    const input = aiRuleInput[columnName];
+  // Generate a custom rule using AI
+  const generateAiRule = async (ruleId: string) => {
+    const input = aiRuleInput[ruleId];
     if (!input?.trim()) return;
 
-    const currentRule = rules.find(r => r.columnName === columnName);
+    const currentRule = editedRules[ruleId] || rules.find(r => r.id === ruleId);
     if (!currentRule) return;
 
-    setAiRuleLoading(columnName);
-    setAiRuleError(prev => ({ ...prev, [columnName]: '' }));
+    setAiRuleLoading(ruleId);
+    setAiRuleError(prev => ({ ...prev, [ruleId]: '' }));
 
     try {
       const response = await fetch('/api/admin/ai-rule', {
@@ -132,8 +230,9 @@ export default function ProjectRulesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           description: input,
-          columnName: currentRule.columnName,
-          dataType: currentRule.dataType,
+          columnName: currentRule.column_name,
+          dataType: currentRule.data_type,
+          example: currentRule.example,
         }),
       });
 
@@ -144,81 +243,110 @@ export default function ProjectRulesPage() {
       }
 
       if (data.regex) {
-        updateRule(columnName, { pattern: data.regex });
+        updateRule(ruleId, 'custom_rule_regex', data.regex);
       }
       if (data.description) {
-        updateRule(columnName, { description: data.description });
+        updateRule(ruleId, 'custom_rule', data.description);
+      }
+      if (data.example && !currentRule.example) {
+        updateRule(ruleId, 'example', data.example);
       }
 
-      setAiRuleInput(prev => ({ ...prev, [columnName]: '' }));
+      setAiRuleInput(prev => ({ ...prev, [ruleId]: '' }));
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to generate rule';
-      setAiRuleError(prev => ({ ...prev, [columnName]: errorMessage }));
+      setAiRuleError(prev => ({ ...prev, [ruleId]: errorMessage }));
     } finally {
       setAiRuleLoading(null);
     }
   };
 
-  // Save rules
-  const handleSave = async () => {
+  // Handle save - prompts for new template name
+  const handleSaveClick = () => {
+    setNewTemplateName(`${project?.name || 'Project'} Template - ${new Date().toLocaleDateString()}`);
+    setShowSaveModal(true);
+  };
+
+  // Save as new template
+  const handleSaveAsNew = async () => {
+    if (!newTemplateName.trim() || !project) return;
+
     setIsSaving(true);
     setMessage(null);
 
     try {
-      // First check if a template exists for this project
-      const { data: existing } = await supabase
+      // Merge edited rules into the full rules array
+      const updatedRules = rules.map(rule => {
+        const edited = editedRules[rule.id];
+        return edited ? { ...rule, ...edited } : rule;
+      });
+
+      // Create a new template with these rules
+      const { data: newTemplate, error: insertError } = await supabase
         .from('validation_templates')
-        .select('id')
-        .eq('project_id', projectId)
+        .insert({
+          name: newTemplateName.trim(),
+          description: `Custom template for ${project.name}`,
+          rules: updatedRules,
+          is_active: true,
+          is_default: false,
+        })
+        .select('id, name')
         .single();
 
-      if (existing) {
-        // Update existing template
+      if (insertError) throw insertError;
+
+      if (newTemplate) {
+        // Update project to point to new template
         const { error: updateError } = await supabase
-          .from('validation_templates')
-          .update({
-            rules: rules,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('project_id', projectId);
+          .from('projects')
+          .update({ validation_template_id: newTemplate.id })
+          .eq('id', projectId);
 
         if (updateError) throw updateError;
-      } else {
-        // Create new template
-        const { error: insertError } = await supabase
-          .from('validation_templates')
-          .insert({
-            project_id: projectId,
-            name: `${project?.name} Template`,
-            rules: rules,
-          });
 
-        if (insertError) throw insertError;
+        setCurrentTemplateId(newTemplate.id);
+        setCurrentTemplateName(newTemplate.name);
+        setRules(updatedRules);
+        setEditedRules({});
+        setEditingRule(null);
+
+        // Add new template to dropdown
+        setTemplates(prev => [...prev, {
+          id: newTemplate.id,
+          name: newTemplate.name,
+          ruleCount: updatedRules.length,
+        }]);
+
+        setMessage({ type: 'success', text: `Saved as new template "${newTemplate.name}"` });
+        setTimeout(() => setMessage(null), 3000);
       }
-
-      setMessage({ type: 'success', text: 'Validation rules saved successfully!' });
-      setEditingRule(null);
-      setTimeout(() => setMessage(null), 3000);
     } catch (err) {
-      console.error('Error saving rules:', err);
-      setMessage({ type: 'error', text: 'Failed to save rules. Please try again.' });
+      console.error('Error saving template:', err);
+      setMessage({ type: 'error', text: 'Failed to save template. Please try again.' });
     } finally {
       setIsSaving(false);
+      setShowSaveModal(false);
     }
   };
 
-  const getColorIndicators = (rule: ProjectValidationRule): string[] => {
+  const hasChanges = Object.keys(editedRules).length > 0;
+
+  const getColorIndicators = (rule: TemplateRule): string[] => {
     const colors: string[] = [];
-    if (rule.required) colors.push('bg-red-500');
-    if (rule.maxLength) colors.push('bg-yellow-500');
-    if (!rule.required) colors.push('bg-green-500');
+    if (rule.is_required && !rule.allow_blank) colors.push('bg-red-500');
+    if (rule.is_unique) colors.push('bg-purple-500');
+    if (rule.max_length) colors.push('bg-yellow-500');
+    if (!rule.is_required) colors.push('bg-green-500');
     if (colors.length === 0) colors.push('bg-gray-400');
     return colors;
   };
 
-  const getRowBgColor = (rule: ProjectValidationRule) => {
-    if (rule.required) return 'bg-red-50';
-    return 'bg-green-50';
+  const getRowBgColor = (rule: TemplateRule) => {
+    if (rule.is_required && !rule.allow_blank) return 'bg-red-50';
+    if (rule.is_unique) return 'bg-purple-50';
+    if (!rule.is_required) return 'bg-green-50';
+    return 'bg-white';
   };
 
   if (isLoading) {
@@ -278,29 +406,57 @@ export default function ProjectRulesPage() {
           </div>
           <div className="mt-4 sm:mt-0 flex gap-2">
             <button
-              onClick={addRule}
+              onClick={addNewRule}
               className="btn-secondary flex items-center gap-2"
             >
               <Plus className="h-4 w-4" />
               Add Column
             </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="btn-primary flex items-center gap-2"
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4" />
-                  Save Rules
-                </>
-              )}
-            </button>
+            {hasChanges && (
+              <button
+                onClick={handleSaveClick}
+                disabled={isSaving}
+                className="btn-primary flex items-center gap-2"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Save as New Template
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Template selector */}
+        <div className="card mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
+              Active Template:
+            </label>
+            <div className="relative flex-1 max-w-md">
+              <select
+                value={currentTemplateId}
+                onChange={e => handleTemplateChange(e.target.value)}
+                className="input-field pr-8 appearance-none"
+              >
+                {templates.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.ruleCount} columns)
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            </div>
+            <span className="text-xs text-gray-500">
+              Switching templates will update this project&apos;s validation rules immediately.
+            </span>
           </div>
         </div>
 
@@ -321,6 +477,10 @@ export default function ProjectRulesPage() {
             <div className="flex items-center gap-2">
               <span className="w-4 h-4 rounded bg-red-500"></span>
               <span>Required field</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-4 h-4 rounded bg-purple-500"></span>
+              <span>Must be unique</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-4 h-4 rounded bg-yellow-500"></span>
@@ -348,58 +508,76 @@ export default function ProjectRulesPage() {
                 <tr className="bg-gray-100">
                   <th className="border px-3 py-2 text-left font-medium text-gray-700 w-10">#</th>
                   <th className="border px-3 py-2 text-left font-medium text-gray-700">Column Name</th>
-                  <th className="border px-3 py-2 text-left font-medium text-gray-700">Display Name</th>
-                  <th className="border px-3 py-2 text-left font-medium text-gray-700 w-24">Data Type</th>
                   <th className="border px-3 py-2 text-center font-medium text-gray-700 w-20">Required</th>
-                  <th className="border px-3 py-2 text-left font-medium text-gray-700">Validation</th>
+                  <th className="border px-3 py-2 text-center font-medium text-gray-700 w-20">Unique</th>
+                  <th className="border px-3 py-2 text-center font-medium text-gray-700 w-24">Allow Blank</th>
+                  <th className="border px-3 py-2 text-left font-medium text-gray-700 w-24">Max Length</th>
+                  <th className="border px-3 py-2 text-left font-medium text-gray-700 w-24">Type</th>
+                  <th className="border px-3 py-2 text-left font-medium text-gray-700">Custom Rule</th>
+                  <th className="border px-3 py-2 text-left font-medium text-gray-700">Example</th>
                   <th className="border px-3 py-2 text-center font-medium text-gray-700 w-20">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {rules.map((rule, index) => {
-                  const isEditing = editingRule === rule.columnName;
+                  const effectiveRule = getEffectiveRule(rule);
+                  const isEditing = editingRule === rule.id;
 
                   if (isEditing) {
                     return (
-                      <tr key={rule.columnName} className="bg-yellow-50">
+                      <tr key={rule.id} className="bg-yellow-50">
                         <td className="border px-3 py-2">{index + 1}</td>
                         <td className="border px-3 py-2">
                           <input
                             type="text"
-                            value={rule.columnName}
-                            onChange={e => updateRule(rule.columnName, { columnName: e.target.value })}
+                            value={effectiveRule.column_name}
+                            onChange={e => updateRule(rule.id, 'column_name', e.target.value)}
                             className="w-full px-2 py-1 border rounded text-sm"
-                            autoFocus
+                          />
+                        </td>
+                        <td className="border px-3 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={effectiveRule.is_required}
+                            onChange={e => updateRule(rule.id, 'is_required', e.target.checked)}
+                            className="w-4 h-4"
+                          />
+                        </td>
+                        <td className="border px-3 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={effectiveRule.is_unique}
+                            onChange={e => updateRule(rule.id, 'is_unique', e.target.checked)}
+                            className="w-4 h-4"
+                          />
+                        </td>
+                        <td className="border px-3 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={effectiveRule.allow_blank}
+                            onChange={e => updateRule(rule.id, 'allow_blank', e.target.checked)}
+                            className="w-4 h-4"
                           />
                         </td>
                         <td className="border px-3 py-2">
                           <input
-                            type="text"
-                            value={rule.displayName}
-                            onChange={e => updateRule(rule.columnName, { displayName: e.target.value })}
+                            type="number"
+                            value={effectiveRule.max_length || ''}
+                            onChange={e => updateRule(rule.id, 'max_length', e.target.value ? parseInt(e.target.value) : undefined)}
                             className="w-full px-2 py-1 border rounded text-sm"
                           />
                         </td>
                         <td className="border px-3 py-2">
                           <select
-                            value={rule.dataType}
-                            onChange={e => updateRule(rule.columnName, { dataType: e.target.value as ProjectValidationRule['dataType'] })}
+                            value={effectiveRule.data_type}
+                            onChange={e => updateRule(rule.id, 'data_type', e.target.value)}
                             className="w-full px-2 py-1 border rounded text-sm"
                           >
-                            <option value="string">String</option>
+                            <option value="text">Text</option>
                             <option value="number">Number</option>
-                            <option value="date">Date</option>
                             <option value="boolean">Boolean</option>
-                            <option value="email">Email</option>
+                            <option value="date">Date</option>
                           </select>
-                        </td>
-                        <td className="border px-3 py-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={rule.required}
-                            onChange={e => updateRule(rule.columnName, { required: e.target.checked })}
-                            className="w-4 h-4"
-                          />
                         </td>
                         <td className="border px-3 py-2">
                           <div className="space-y-2">
@@ -412,23 +590,23 @@ export default function ProjectRulesPage() {
                               <div className="flex gap-1">
                                 <input
                                   type="text"
-                                  value={aiRuleInput[rule.columnName] || ''}
-                                  onChange={e => setAiRuleInput(prev => ({ ...prev, [rule.columnName]: e.target.value }))}
+                                  value={aiRuleInput[rule.id] || ''}
+                                  onChange={e => setAiRuleInput(prev => ({ ...prev, [rule.id]: e.target.value }))}
                                   className="flex-1 px-2 py-1 border border-purple-300 rounded text-sm"
                                   placeholder='e.g., "only allow yes, no, or N/A"'
                                   onKeyDown={e => {
                                     if (e.key === 'Enter') {
                                       e.preventDefault();
-                                      generateAiRule(rule.columnName);
+                                      generateAiRule(rule.id);
                                     }
                                   }}
                                 />
                                 <button
-                                  onClick={() => generateAiRule(rule.columnName)}
-                                  disabled={aiRuleLoading === rule.columnName || !aiRuleInput[rule.columnName]?.trim()}
+                                  onClick={() => generateAiRule(rule.id)}
+                                  disabled={aiRuleLoading === rule.id || !aiRuleInput[rule.id]?.trim()}
                                   className="px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1 whitespace-nowrap"
                                 >
-                                  {aiRuleLoading === rule.columnName ? (
+                                  {aiRuleLoading === rule.id ? (
                                     <Loader2 className="h-3 w-3 animate-spin" />
                                   ) : (
                                     <Sparkles className="h-3 w-3" />
@@ -436,45 +614,37 @@ export default function ProjectRulesPage() {
                                   Generate
                                 </button>
                               </div>
-                              {aiRuleError[rule.columnName] && (
-                                <p className="text-xs text-red-600 mt-1">{aiRuleError[rule.columnName]}</p>
+                              {aiRuleError[rule.id] && (
+                                <p className="text-xs text-red-600 mt-1">{aiRuleError[rule.id]}</p>
                               )}
                             </div>
 
                             {/* Manual Rule Fields */}
                             <div className="space-y-1">
-                              <div className="flex gap-2">
-                                <input
-                                  type="number"
-                                  value={rule.minLength || ''}
-                                  onChange={e => updateRule(rule.columnName, { minLength: e.target.value ? parseInt(e.target.value) : undefined })}
-                                  className="w-20 px-2 py-1 border rounded text-sm"
-                                  placeholder="Min len"
-                                />
-                                <input
-                                  type="number"
-                                  value={rule.maxLength || ''}
-                                  onChange={e => updateRule(rule.columnName, { maxLength: e.target.value ? parseInt(e.target.value) : undefined })}
-                                  className="w-20 px-2 py-1 border rounded text-sm"
-                                  placeholder="Max len"
-                                />
-                              </div>
                               <input
                                 type="text"
-                                value={rule.description || ''}
-                                onChange={e => updateRule(rule.columnName, { description: e.target.value })}
+                                value={effectiveRule.custom_rule || ''}
+                                onChange={e => updateRule(rule.id, 'custom_rule', e.target.value)}
                                 className="w-full px-2 py-1 border rounded text-sm"
                                 placeholder="Rule description (for error messages)"
                               />
                               <input
                                 type="text"
-                                value={rule.pattern || ''}
-                                onChange={e => updateRule(rule.columnName, { pattern: e.target.value || undefined })}
+                                value={effectiveRule.custom_rule_regex || ''}
+                                onChange={e => updateRule(rule.id, 'custom_rule_regex', e.target.value)}
                                 className="w-full px-2 py-1 border rounded text-sm font-mono"
                                 placeholder="Regex pattern (auto-generated or manual)"
                               />
                             </div>
                           </div>
+                        </td>
+                        <td className="border px-3 py-2">
+                          <input
+                            type="text"
+                            value={effectiveRule.example || ''}
+                            onChange={e => updateRule(rule.id, 'example', e.target.value)}
+                            className="w-full px-2 py-1 border rounded text-sm"
+                          />
                         </td>
                         <td className="border px-3 py-2">
                           <div className="flex justify-center gap-1">
@@ -486,7 +656,12 @@ export default function ProjectRulesPage() {
                               <Save className="h-4 w-4" />
                             </button>
                             <button
-                              onClick={() => setEditingRule(null)}
+                              onClick={() => {
+                                setEditingRule(null);
+                                const newEdited = { ...editedRules };
+                                delete newEdited[rule.id];
+                                setEditedRules(newEdited);
+                              }}
                               className="p-1 text-gray-500 hover:bg-gray-100 rounded"
                               title="Cancel"
                             >
@@ -500,42 +675,54 @@ export default function ProjectRulesPage() {
 
                   return (
                     <tr
-                      key={rule.columnName}
-                      className={`${getRowBgColor(rule)} hover:bg-opacity-75 cursor-pointer`}
-                      onDoubleClick={() => setEditingRule(rule.columnName)}
+                      key={rule.id}
+                      className={`${getRowBgColor(effectiveRule)} hover:bg-opacity-75 cursor-pointer`}
+                      onDoubleClick={() => {
+                        setEditedRules(prev => ({ ...prev, [rule.id]: prev[rule.id] || rule }));
+                        setEditingRule(rule.id);
+                      }}
                     >
                       <td className="border px-3 py-2 text-gray-500">{index + 1}</td>
                       <td className="border px-3 py-2">
                         <div className="flex items-center gap-2">
                           <div className="flex gap-0.5">
-                            {getColorIndicators(rule).map((color, i) => (
+                            {getColorIndicators(effectiveRule).map((color, i) => (
                               <span key={i} className={`w-2 h-2 rounded-full ${color}`}></span>
                             ))}
                           </div>
-                          <span className="font-mono font-medium">{rule.columnName}</span>
+                          <span className="font-medium">{effectiveRule.column_name}</span>
                         </div>
                       </td>
-                      <td className="border px-3 py-2 text-gray-600">{rule.displayName}</td>
-                      <td className="border px-3 py-2 text-gray-600 capitalize">{rule.dataType}</td>
-                      <td className="border px-3 py-2 text-center">{rule.required ? '✓' : '—'}</td>
+                      <td className="border px-3 py-2 text-center">{effectiveRule.is_required ? '✓' : '—'}</td>
+                      <td className="border px-3 py-2 text-center">{effectiveRule.is_unique ? '✓' : '—'}</td>
+                      <td className="border px-3 py-2 text-center">{effectiveRule.allow_blank ? '✓' : '—'}</td>
+                      <td className="border px-3 py-2 text-gray-600">{effectiveRule.max_length || '—'}</td>
+                      <td className="border px-3 py-2 text-gray-600 capitalize">{effectiveRule.data_type}</td>
                       <td className="border px-3 py-2 text-gray-500 text-xs">
-                        {rule.minLength && <span>Min: {rule.minLength} </span>}
-                        {rule.maxLength && <span>Max: {rule.maxLength} </span>}
-                        {rule.pattern && <span className="font-mono break-all">{rule.pattern}</span>}
-                        {rule.allowedValues && <span>{rule.allowedValues.length} values</span>}
-                        {!rule.minLength && !rule.maxLength && !rule.pattern && !rule.allowedValues && '—'}
+                        {effectiveRule.custom_rule || effectiveRule.custom_rule_regex ? (
+                          <div className="space-y-1">
+                            {effectiveRule.custom_rule && <div className="break-words whitespace-normal">{effectiveRule.custom_rule}</div>}
+                            {effectiveRule.custom_rule_regex && <div className="font-mono text-gray-400 break-all whitespace-normal">{effectiveRule.custom_rule_regex}</div>}
+                          </div>
+                        ) : '—'}
+                      </td>
+                      <td className="border px-3 py-2 text-gray-500 font-mono text-xs break-words whitespace-normal">
+                        {effectiveRule.example || '—'}
                       </td>
                       <td className="border px-3 py-2">
                         <div className="flex justify-center gap-1">
                           <button
-                            onClick={() => setEditingRule(rule.columnName)}
+                            onClick={() => {
+                              setEditedRules(prev => ({ ...prev, [rule.id]: prev[rule.id] || rule }));
+                              setEditingRule(rule.id);
+                            }}
                             className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
                             title="Edit rule"
                           >
                             <Settings className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => removeRule(rule.columnName)}
+                            onClick={() => removeRule(rule.id)}
                             className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
                             title="Delete rule"
                           >
@@ -554,7 +741,7 @@ export default function ProjectRulesPage() {
             <div className="text-center py-12">
               <FileText className="mx-auto h-12 w-12 text-gray-300" />
               <p className="mt-4 text-gray-500">No validation rules defined</p>
-              <button onClick={addRule} className="mt-4 btn-primary">
+              <button onClick={addNewRule} className="mt-4 btn-primary">
                 Add First Column
               </button>
             </div>
@@ -570,10 +757,9 @@ export default function ProjectRulesPage() {
               <ul className="mt-1 list-disc list-inside space-y-1">
                 <li>Double-click on any row to edit that column&apos;s rules</li>
                 <li>Use the settings icon to edit, or trash icon to delete a column</li>
-                <li><strong>Column Name</strong> must match exactly the CSV header</li>
-                <li><strong>Required</strong> columns will flag an error if empty</li>
-                <li><strong>Data Type</strong> determines how the value is validated</li>
-                <li>Changes are not saved until you click &quot;Save Rules&quot;</li>
+                <li>Use the template dropdown to switch to a different template</li>
+                <li>When you modify rules, you&apos;ll be prompted to save as a new template</li>
+                <li>Color codes update automatically based on the rules you set</li>
               </ul>
             </div>
           </div>
@@ -590,6 +776,64 @@ export default function ProjectRulesPage() {
           </button>
         </div>
       </main>
+
+      {/* Save As New Template Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="p-6 border-b">
+              <h2 className="text-lg font-semibold text-gray-900">Save as New Template</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Your changes will be saved as a new template and assigned to this project.
+              </p>
+            </div>
+            <div className="p-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Template Name
+              </label>
+              <input
+                type="text"
+                value={newTemplateName}
+                onChange={e => setNewTemplateName(e.target.value)}
+                className="input-field"
+                placeholder="Enter template name..."
+                autoFocus
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSaveAsNew();
+                  }
+                }}
+              />
+            </div>
+            <div className="p-4 border-t bg-gray-50 flex gap-3 justify-end rounded-b-lg">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveAsNew}
+                disabled={!newTemplateName.trim() || isSaving}
+                className="btn-primary flex items-center gap-2"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Save Template
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Help Modal */}
       {showHelp && (
@@ -618,25 +862,24 @@ export default function ProjectRulesPage() {
                     </p>
                   </div>
                   <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900">Unique</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      When checked, all values in this column must be unique. Duplicate values will be flagged as errors.
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900">Allow Blank</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      When checked, empty/blank values are permitted in this column.
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
                     <h4 className="font-medium text-gray-900">Data Type</h4>
                     <p className="text-sm text-gray-600 mt-1">
-                      <strong>String:</strong> Any text value<br />
-                      <strong>Number:</strong> Numeric values only (integers or decimals)<br />
+                      <strong>Text:</strong> Any string value<br />
+                      <strong>Number:</strong> Numeric values only<br />
                       <strong>Boolean:</strong> True/false, yes/no, 1/0 values<br />
-                      <strong>Date:</strong> Date values in standard formats<br />
-                      <strong>Email:</strong> Valid email addresses
-                    </p>
-                  </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <h4 className="font-medium text-gray-900">Min/Max Length</h4>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Minimum and maximum number of characters allowed. Leave empty for no limit.
-                    </p>
-                  </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <h4 className="font-medium text-gray-900">Regex Pattern</h4>
-                    <p className="text-sm text-gray-600 mt-1">
-                      A regular expression pattern that values must match. The entire value must match the pattern.
+                      <strong>Date:</strong> Date values in standard formats
                     </p>
                   </div>
                 </div>
@@ -663,16 +906,6 @@ export default function ProjectRulesPage() {
                         <td className="border px-3 py-2 font-mono text-xs">^[A-Z]{"{2,3}"}$</td>
                         <td className="border px-3 py-2">2-3 uppercase letters</td>
                         <td className="border px-3 py-2">USA, CA</td>
-                      </tr>
-                      <tr>
-                        <td className="border px-3 py-2 font-mono text-xs">^\d{"{5}"}(-\d{"{4}"})?$</td>
-                        <td className="border px-3 py-2">US ZIP code (5 or 9 digit)</td>
-                        <td className="border px-3 py-2">12345, 12345-6789</td>
-                      </tr>
-                      <tr className="bg-gray-50">
-                        <td className="border px-3 py-2 font-mono text-xs">^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{"{2,}"}$</td>
-                        <td className="border px-3 py-2">Email address</td>
-                        <td className="border px-3 py-2">user@example.com</td>
                       </tr>
                       <tr>
                         <td className="border px-3 py-2 font-mono text-xs">^(Yes|No|N/A)$</td>

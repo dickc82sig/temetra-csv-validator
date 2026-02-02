@@ -176,8 +176,30 @@ export default function TemplateEditPage() {
       delete newEdited[ruleId];
       setEditedRules(newEdited);
       setEditingRule(null);
-      setMessage({ type: 'success', text: 'Rule saved!' });
-      setTimeout(() => setMessage(null), 2000);
+
+      // Notify affected projects
+      try {
+        const notifyRes = await fetch('/api/admin/template-notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            templateId: template.id,
+            templateName: template.name,
+          }),
+        });
+        const notifyData = await notifyRes.json();
+        if (notifyData.affectedProjects > 0) {
+          setMessage({
+            type: 'success',
+            text: `Rule saved! ${notifyData.affectedProjects} project(s) updated.`,
+          });
+        } else {
+          setMessage({ type: 'success', text: 'Rule saved!' });
+        }
+      } catch {
+        setMessage({ type: 'success', text: 'Rule saved!' });
+      }
+      setTimeout(() => setMessage(null), 3000);
     } catch (err) {
       console.error('Error saving rule:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to save rule';
@@ -230,8 +252,31 @@ export default function TemplateEditPage() {
 
       setEditedRules({});
       setEditingRule(null);
-      setMessage({ type: 'success', text: 'Template saved successfully!' });
-      setTimeout(() => setMessage(null), 3000);
+
+      // Notify affected projects about the template update
+      try {
+        const notifyRes = await fetch('/api/admin/template-notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            templateId: template.id,
+            templateName: template.name,
+          }),
+        });
+        const notifyData = await notifyRes.json();
+        if (notifyData.affectedProjects > 0) {
+          setMessage({
+            type: 'success',
+            text: `Template saved! ${notifyData.affectedProjects} active project(s) updated. ${notifyData.notifiedEmails} admin(s) notified.`,
+          });
+        } else {
+          setMessage({ type: 'success', text: 'Template saved successfully!' });
+        }
+      } catch {
+        // Notification failed but save succeeded
+        setMessage({ type: 'success', text: 'Template saved successfully! (Notification delivery pending)' });
+      }
+      setTimeout(() => setMessage(null), 5000);
     } catch (err) {
       console.error('Error saving template:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to save template';

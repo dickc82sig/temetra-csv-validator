@@ -11,7 +11,7 @@
  * - If something doesn't match, we report it as an error
  */
 
-import { ValidationRule, NewNetworkUploadColumn } from '@/types';
+import { ValidationRule, ValidationTemplate, NewNetworkUploadColumn } from '@/types';
 
 /**
  * These are the column definitions from your "NewNetworkUpload" Excel sheet.
@@ -368,6 +368,24 @@ export const VALID_COLLECTION_METHODS = [
   'Cellular 500W ERT',
   'Cellular 500G ERT',
 ];
+
+/**
+ * Convert a database template row into a ValidationTemplate for the CSV validator.
+ * The DB stores rules in the same ValidationRule format from types/index.ts.
+ */
+export function dbTemplateToValidationTemplate(
+  dbTemplate: { id: string; name: string; description?: string | null; rules: ValidationRule[]; created_by?: string; created_at?: string; updated_at?: string }
+): ValidationTemplate {
+  return {
+    id: dbTemplate.id,
+    name: dbTemplate.name,
+    description: dbTemplate.description || undefined,
+    rules: dbTemplate.rules || [],
+    created_by: dbTemplate.created_by || 'system',
+    created_at: dbTemplate.created_at || new Date().toISOString(),
+    updated_at: dbTemplate.updated_at || new Date().toISOString(),
+  };
+}
 
 /**
  * ProjectValidationRule type for use with project-specific rules
