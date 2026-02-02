@@ -324,30 +324,13 @@ export default function PublicValidationPage() {
     setIsSubmitting(true);
 
     try {
-      // Upload the CSV file to Supabase storage
-      const timestamp = Date.now();
-      const storagePath = `${project.slug}/${timestamp}-${file?.name || 'unknown.csv'}`;
-      let finalFilePath = storagePath;
-
-      if (file) {
-        const { error: uploadError } = await supabase.storage
-          .from(STORAGE_BUCKETS.CSV_FILES)
-          .upload(storagePath, file);
-
-        if (uploadError) {
-          console.error('Storage upload error:', uploadError);
-          // Continue saving the record even if storage upload fails
-          finalFilePath = '';
-        }
-      }
-
-      // Save the upload to Supabase
-      const { error } = await supabase
+      // Save the upload record to Supabase first (fast)
+      const { data: insertedRow, error } = await supabase
         .from('file_uploads')
         .insert({
           project_id: project.id,
           file_name: file?.name || 'unknown.csv',
-          file_path: finalFilePath,
+          file_path: '',
           file_size: file?.size || 0,
           uploaded_by_name: name,
           uploaded_by_email: email,
@@ -358,13 +341,36 @@ export default function PublicValidationPage() {
           validation_summary: validationResults
             ? `${validationResults.totalRows} rows, ${validationResults.totalErrors} errors`
             : null,
-        });
+        })
+        .select('id')
+        .single();
 
       if (error) {
         console.error('Error saving upload:', error);
         setErrors(prev => ({ ...prev, submit: `Failed to save upload: ${error.message}` }));
         setIsSubmitting(false);
         return;
+      }
+
+      // Upload file to storage in the background (non-blocking)
+      if (file && insertedRow?.id) {
+        const timestamp = Date.now();
+        const storagePath = `${project.slug}/${timestamp}-${file.name}`;
+        supabase.storage
+          .from(STORAGE_BUCKETS.CSV_FILES)
+          .upload(storagePath, file)
+          .then(({ error: uploadError }) => {
+            if (!uploadError) {
+              // Update the record with the storage path
+              supabase
+                .from('file_uploads')
+                .update({ file_path: storagePath })
+                .eq('id', insertedRow.id)
+                .then(() => {});
+            } else {
+              console.error('Storage upload error:', uploadError);
+            }
+          });
       }
 
       setSubmitted(true);
