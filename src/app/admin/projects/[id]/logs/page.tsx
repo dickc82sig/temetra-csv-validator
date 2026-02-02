@@ -24,8 +24,11 @@ import {
   Database,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
+import ValidationResults from '@/components/ui/ValidationResults';
 import { supabase } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
+import { ValidationError } from '@/types';
+import { ValidationResult } from '@/lib/csv-validator';
 
 interface UploadLog {
   id: string;
@@ -39,6 +42,7 @@ interface UploadLog {
   warningCount: number;
   layoutErrors: number;
   dataErrors: number;
+  validationErrors: ValidationError[];
 }
 
 interface Project {
@@ -102,17 +106,17 @@ function ProjectLogsContent() {
               if (errorsMatch) errorCount = parseInt(errorsMatch[1], 10);
             }
 
-            // Count and categorize errors from validation_errors array
-            if (log.validation_errors && Array.isArray(log.validation_errors)) {
-              log.validation_errors.forEach((error: { rule: string }) => {
-                if (error.rule === 'missing_column' || error.rule === 'extra_column') {
-                  layoutErrors++;
-                } else {
-                  dataErrors++;
-                }
-              });
-              errorCount = log.validation_errors.length;
-            }
+            // Count and categorize errors from errors array
+            const rawErrors: ValidationError[] = (log.errors && Array.isArray(log.errors)) ? log.errors : [];
+            rawErrors.forEach((error: { rule: string }) => {
+              if (error.rule === 'missing_column' || error.rule === 'extra_column') {
+                layoutErrors++;
+              } else {
+                dataErrors++;
+              }
+            });
+            errorCount = rawErrors.filter((e: ValidationError) => e.severity === 'error').length;
+            const warningCount = rawErrors.filter((e: ValidationError) => e.severity === 'warning').length;
 
             const validRows = totalRows - errorCount;
 
@@ -125,9 +129,10 @@ function ProjectLogsContent() {
               totalRows,
               validRows: validRows > 0 ? validRows : 0,
               errorCount,
-              warningCount: 0,
+              warningCount,
               layoutErrors,
               dataErrors,
+              validationErrors: rawErrors,
             };
           }));
         } else {
@@ -191,6 +196,61 @@ function ProjectLogsContent() {
       invalid: 'bg-red-100 text-red-700',
     };
     return classes[status as keyof typeof classes] || 'bg-gray-100 text-gray-700';
+  };
+
+  /**
+   * Reconstruct a ValidationResult from stored log data
+   */
+  const buildValidationResult = (log: UploadLog): ValidationResult => {
+    const errors = log.validationErrors || [];
+    const missingColumns = errors
+      .filter(e => e.rule === 'missing_column')
+      .map(e => e.column);
+    const extraColumns = errors
+      .filter(e => e.rule === 'extra_column')
+      .map(e => e.column);
+
+    return {
+      isValid: log.status === 'valid',
+      totalRows: log.totalRows,
+      totalErrors: log.errorCount,
+      totalWarnings: log.warningCount,
+      errors,
+      summary: `${log.totalRows} rows checked. ${log.errorCount} errors, ${log.warningCount} warnings found.`,
+      columnMatches: missingColumns.length === 0,
+      missingColumns,
+      extraColumns,
+    };
+  };
+
+  /**
+   * Generate and download a CSV report for a log entry
+   */
+  const downloadReport = (log: UploadLog) => {
+    const errors = log.validationErrors || [];
+    const lines: string[] = [];
+    lines.push('Row,Column,Severity,Rule,Message,Value');
+    errors.forEach(e => {
+      const escapeCsv = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
+      lines.push([
+        e.row,
+        escapeCsv(e.column),
+        e.severity,
+        escapeCsv(e.rule),
+        escapeCsv(e.message),
+        escapeCsv(e.value),
+      ].join(','));
+    });
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${log.filename.replace(/\.csv$/i, '')}-validation-report.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   if (isLoading) {
@@ -407,6 +467,7 @@ function ProjectLogsContent() {
                         <Eye className="h-4 w-4" />
                       </button>
                       <button
+                        onClick={() => downloadReport(log)}
                         className="p-1 text-gray-400 hover:text-temetra-blue-600"
                         title="Download Report"
                       >
@@ -447,83 +508,36 @@ function ProjectLogsContent() {
       {/* Detail modal */}
       {selectedLog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-auto">
-            <div className="p-6 border-b">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div className="p-6 border-b sticky top-0 bg-white z-10">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">Upload Details</h3>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">{selectedLog.filename}</h3>
+                  <p className="text-sm text-gray-500">
+                    Uploaded by {selectedLog.uploadedBy} on {formatDate(selectedLog.uploadedAt)}
+                  </p>
+                </div>
                 <button
                   onClick={() => setSelectedLog(null)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
                 >
                   &times;
                 </button>
               </div>
             </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Filename</p>
-                  <p className="font-medium">{selectedLog.filename}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Status</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    {getStatusIcon(selectedLog.status)}
-                    <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusBadge(selectedLog.status)}`}>
-                      {selectedLog.status}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Uploaded By</p>
-                  <p className="font-medium">{selectedLog.uploadedBy}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Upload Date</p>
-                  <p className="font-medium">{formatDate(selectedLog.uploadedAt)}</p>
-                </div>
-              </div>
-
-              <div className="border-t pt-4">
-                <p className="text-xs text-gray-500 uppercase mb-2">Validation Results</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-3 bg-gray-50 rounded">
-                    <p className="text-xl font-bold text-gray-900">{selectedLog.totalRows}</p>
-                    <p className="text-xs text-gray-500">Total Rows</p>
-                  </div>
-                  <div className="text-center p-3 bg-green-50 rounded">
-                    <p className="text-xl font-bold text-green-600">{selectedLog.validRows}</p>
-                    <p className="text-xs text-gray-500">Valid Rows</p>
-                  </div>
-                  <div className="text-center p-3 bg-red-50 rounded">
-                    <div className="flex items-center justify-center gap-1 text-red-600">
-                      <LayoutGrid className="h-4 w-4" />
-                      <p className="text-xl font-bold">{selectedLog.layoutErrors}</p>
-                    </div>
-                    <p className="text-xs text-gray-500">Layout Errors</p>
-                  </div>
-                  <div className="text-center p-3 bg-orange-50 rounded">
-                    <div className="flex items-center justify-center gap-1 text-orange-600">
-                      <Database className="h-4 w-4" />
-                      <p className="text-xl font-bold">{selectedLog.dataErrors}</p>
-                    </div>
-                    <p className="text-xs text-gray-500">Data Errors</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-4 border-t">
-                <button className="btn-secondary flex-1 flex items-center justify-center gap-2">
-                  <Download className="h-4 w-4" />
-                  Download Report
-                </button>
-                <button
-                  onClick={() => setSelectedLog(null)}
-                  className="btn-primary flex-1"
-                >
-                  Close
-                </button>
-              </div>
+            <div className="p-6">
+              <ValidationResults
+                results={buildValidationResult(selectedLog)}
+                onDownloadReport={() => downloadReport(selectedLog)}
+              />
+            </div>
+            <div className="p-4 border-t sticky bottom-0 bg-white">
+              <button
+                onClick={() => setSelectedLog(null)}
+                className="btn-primary w-full"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
