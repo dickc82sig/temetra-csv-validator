@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       .from('projects')
       .select('id, name, admin_email, alert_on_upload')
       .eq('validation_template_id', templateId)
-      .eq('is_active', true);
+      .eq('status', 'active');
 
     if (queryError) {
       console.error('Error querying projects:', queryError);

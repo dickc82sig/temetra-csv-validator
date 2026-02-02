@@ -22,7 +22,7 @@ export async function GET() {
     const { count: projectCount } = await supabase
       .from('projects')
       .select('*', { count: 'exact', head: true })
-      .eq('is_active', true);
+      .eq('status', 'active');
 
     // Get upload stats
     const { count: totalUploads } = await supabase
@@ -93,7 +93,7 @@ export async function GET() {
     const { data: projectsList } = await supabase
       .from('projects')
       .select('id, name, created_at')
-      .eq('is_active', true)
+      .eq('status', 'active')
       .order('created_at', { ascending: false })
       .limit(5);
 

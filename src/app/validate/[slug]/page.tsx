@@ -101,7 +101,7 @@ export default function PublicValidationPage() {
           .from('projects')
           .select('id, name, description, slug, template_csv_url, documentation_url, validation_template_id')
           .eq('slug', slug)
-          .eq('is_active', true)
+          .eq('status', 'active')
           .single();
 
         if (error || !data) {

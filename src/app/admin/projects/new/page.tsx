@@ -130,7 +130,7 @@ export default function NewProjectPage() {
           validation_template_id: formData.templateId,
           alert_on_upload: formData.alertOnUpload,
           admin_email: formData.adminEmail.trim(),
-          is_active: true,
+          status: 'active',
         })
         .select()
         .single();

@@ -85,8 +85,8 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
 
-    -- Soft delete
-    is_active BOOLEAN DEFAULT TRUE
+    -- Project status: 'active', 'retired', or 'deleted'
+    status TEXT DEFAULT 'active' NOT NULL
 );
 
 -- Index for faster slug lookups

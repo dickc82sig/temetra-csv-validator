@@ -30,10 +30,15 @@ import {
   Database,
   FileText,
   Upload,
+  Archive,
+  RotateCcw,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
+
+type ProjectStatus = 'active' | 'retired' | 'deleted';
+type StatusFilter = 'active' | 'retired' | 'all';
 
 interface Project {
   id: string;
@@ -43,6 +48,7 @@ interface Project {
   public_link: string;
   alert_on_upload: boolean;
   created_at: string;
+  status: ProjectStatus;
   validation_template_id?: string;
   total_uploads?: number;
   last_upload?: string;
@@ -56,6 +62,7 @@ export default function AdminProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [origin, setOrigin] = useState('');
@@ -68,15 +75,27 @@ export default function AdminProjectsPage() {
   // Load projects from Supabase
   useEffect(() => {
     loadProjects();
-  }, []);
+  }, [statusFilter]);
 
   const loadProjects = async () => {
+    setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('projects')
         .select('*')
-        .eq('is_active', true)
         .order('created_at', { ascending: false });
+
+      // Apply status filter
+      if (statusFilter === 'active') {
+        query = query.eq('status', 'active');
+      } else if (statusFilter === 'retired') {
+        query = query.eq('status', 'retired');
+      } else {
+        // 'all' - show active and retired, never deleted
+        query = query.in('status', ['active', 'retired']);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error('Error loading projects:', error);
@@ -115,7 +134,6 @@ export default function AdminProjectsPage() {
             if (lastUploadData?.validation_errors) {
               const errors = lastUploadData.validation_errors as Array<{ rule: string }>;
               errors.forEach((error) => {
-                // Layout errors are column structure issues
                 if (error.rule === 'missing_column' || error.rule === 'extra_column') {
                   layoutErrors++;
                 } else {
@@ -163,24 +181,32 @@ export default function AdminProjectsPage() {
   };
 
   /**
-   * Delete a project
+   * Update project status
    */
-  const deleteProject = async (projectId: string) => {
-    if (!confirm('Are you sure you want to delete this project?')) return;
+  const updateProjectStatus = async (projectId: string, newStatus: ProjectStatus, confirmMsg: string) => {
+    if (!confirm(confirmMsg)) return;
 
     try {
       const { error } = await supabase
         .from('projects')
-        .update({ is_active: false })
+        .update({ status: newStatus })
         .eq('id', projectId);
 
       if (error) throw error;
 
-      setProjects(prev => prev.filter(p => p.id !== projectId));
+      // Remove from current view if status no longer matches filter
+      if (statusFilter !== 'all') {
+        setProjects(prev => prev.filter(p => p.id !== projectId));
+      } else {
+        // Update in place for 'all' view
+        setProjects(prev => prev.map(p =>
+          p.id === projectId ? { ...p, status: newStatus } : p
+        ));
+      }
       setOpenMenu(null);
     } catch (err) {
-      console.error('Error deleting project:', err);
-      alert('Failed to delete project');
+      console.error('Error updating project status:', err);
+      alert('Failed to update project status');
     }
   };
 
@@ -216,9 +242,9 @@ export default function AdminProjectsPage() {
           </Link>
         </div>
 
-        {/* Search bar */}
-        <div className="mb-6">
-          <div className="relative max-w-md">
+        {/* Search bar + Status filter */}
+        <div className="mb-6 flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
@@ -228,227 +254,291 @@ export default function AdminProjectsPage() {
               className="input-field pl-10"
             />
           </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            className="input-field w-auto min-w-[140px]"
+          >
+            <option value="active">Active</option>
+            <option value="retired">Retired</option>
+            <option value="all">All</option>
+          </select>
         </div>
 
         {/* Projects grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredProjects.map(project => (
-            <div key={project.id} className="card hover:shadow-md transition-shadow overflow-hidden relative">
-              {/* Validation status line across the top */}
-              <div className={`absolute top-0 left-0 right-0 h-1 ${
-                project.has_valid_upload ? 'bg-green-500' : 'bg-red-500'
-              }`} />
+          {filteredProjects.map(project => {
+            const isRetired = project.status === 'retired';
 
-              {/* Header with menu */}
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h3 className="font-semibold text-gray-900">{project.name}</h3>
-                  <p className="text-sm text-gray-500">{project.description || 'No description'}</p>
+            return (
+              <div
+                key={project.id}
+                className={`card hover:shadow-md transition-shadow overflow-hidden relative ${
+                  isRetired ? 'opacity-70' : ''
+                }`}
+              >
+                {/* Validation status line across the top */}
+                <div className={`absolute top-0 left-0 right-0 h-1 ${
+                  isRetired
+                    ? 'bg-amber-400'
+                    : project.has_valid_upload ? 'bg-green-500' : 'bg-red-500'
+                }`} />
+
+                {/* Header with menu */}
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div>
+                      <h3 className="font-semibold text-gray-900">{project.name}</h3>
+                      <p className="text-sm text-gray-500">{project.description || 'No description'}</p>
+                    </div>
+                    {isRetired && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                        <Archive className="h-3 w-3" />
+                        Retired
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <button
+                      onClick={() => setOpenMenu(openMenu === project.id ? null : project.id)}
+                      className="p-1 rounded hover:bg-gray-100"
+                    >
+                      <MoreVertical className="h-5 w-5 text-gray-400" />
+                    </button>
+
+                    {/* Dropdown menu */}
+                    {openMenu === project.id && (
+                      <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border py-1 z-10">
+                        <Link
+                          href={`/admin/projects/${project.id}`}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <Eye className="h-4 w-4" />
+                          View Details
+                        </Link>
+                        <Link
+                          href={`/admin/projects/${project.id}/edit`}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <Edit className="h-4 w-4" />
+                          Edit Project
+                        </Link>
+                        <Link
+                          href={`/admin/projects/${project.id}/rules`}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <Settings className="h-4 w-4" />
+                          Validation Rules
+                        </Link>
+                        <button
+                          onClick={() => copyLink(project.id, project.public_link)}
+                          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <Copy className="h-4 w-4" />
+                          {copiedLink === project.id ? 'Copied!' : 'Copy Public Link'}
+                        </button>
+                        <hr className="my-1" />
+
+                        {/* Status actions */}
+                        {project.status === 'active' && (
+                          <button
+                            onClick={() => updateProjectStatus(
+                              project.id,
+                              'retired',
+                              'Are you sure you want to retire this project? It will no longer accept new uploads.'
+                            )}
+                            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-amber-50"
+                          >
+                            <Archive className="h-4 w-4" />
+                            Retire Project
+                          </button>
+                        )}
+
+                        {project.status === 'retired' && (
+                          <button
+                            onClick={() => updateProjectStatus(
+                              project.id,
+                              'active',
+                              'Reactivate this project? It will accept uploads again.'
+                            )}
+                            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-green-600 hover:bg-green-50"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                            Reactivate Project
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => updateProjectStatus(
+                            project.id,
+                            'deleted',
+                            'Are you sure you want to delete this project? It will be hidden from all views.'
+                          )}
+                          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete Project
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="relative">
-                  <button
-                    onClick={() => setOpenMenu(openMenu === project.id ? null : project.id)}
-                    className="p-1 rounded hover:bg-gray-100"
-                  >
-                    <MoreVertical className="h-5 w-5 text-gray-400" />
-                  </button>
 
-                  {/* Dropdown menu */}
-                  {openMenu === project.id && (
-                    <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border py-1 z-10">
+                {/* Stats */}
+                <div className="py-4 border-y border-gray-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900">{project.total_uploads || 0}</p>
+                      <p className="text-xs text-gray-500">Total Uploads</p>
+                    </div>
+                    {/* Status indicator for last upload */}
+                    <div className="text-right">
+                      {project.last_upload_status === 'valid' ? (
+                        <div className="flex items-center gap-2 text-green-600">
+                          <CheckCircle className="h-6 w-6" />
+                          <span className="text-sm font-medium">Passed</span>
+                        </div>
+                      ) : project.last_upload_status === 'invalid' ? (
+                        <div className="flex items-center gap-2 text-red-600">
+                          <XCircle className="h-6 w-6" />
+                          <span className="text-sm font-medium">Failed</span>
+                        </div>
+                      ) : project.last_upload_status === 'pending' ? (
+                        <div className="flex items-center gap-2 text-yellow-600">
+                          <AlertTriangle className="h-6 w-6" />
+                          <span className="text-sm font-medium">Pending</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-gray-400">
+                          <span className="text-sm">No uploads</span>
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1">Last File Status</p>
+                    </div>
+                  </div>
+
+                  {/* Error counters - only show if there are errors */}
+                  {(project.layout_errors || 0) + (project.data_errors || 0) > 0 && (
+                    <div className="flex gap-2 mt-3">
                       <Link
-                        href={`/admin/projects/${project.id}`}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        href={`/admin/projects/${project.id}/logs?error_type=layout`}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          (project.layout_errors || 0) > 0
+                            ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
                       >
-                        <Eye className="h-4 w-4" />
-                        View Details
+                        <LayoutGrid className="h-4 w-4" />
+                        <span>{project.layout_errors || 0} Layout</span>
                       </Link>
                       <Link
-                        href={`/admin/projects/${project.id}/edit`}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        href={`/admin/projects/${project.id}/logs?error_type=data`}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          (project.data_errors || 0) > 0
+                            ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
                       >
-                        <Edit className="h-4 w-4" />
-                        Edit Project
+                        <Database className="h-4 w-4" />
+                        <span>{project.data_errors || 0} Data</span>
                       </Link>
-                      <Link
-                        href={`/admin/projects/${project.id}/rules`}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        <Settings className="h-4 w-4" />
-                        Validation Rules
-                      </Link>
-                      <button
-                        onClick={() => copyLink(project.id, project.public_link)}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        <Copy className="h-4 w-4" />
-                        {copiedLink === project.id ? 'Copied!' : 'Copy Public Link'}
-                      </button>
-                      <hr className="my-1" />
-                      <button
-                        onClick={() => deleteProject(project.id)}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Delete Project
-                      </button>
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* Stats */}
-              <div className="py-4 border-y border-gray-100">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="text-2xl font-bold text-gray-900">{project.total_uploads || 0}</p>
-                    <p className="text-xs text-gray-500">Total Uploads</p>
+                {/* Footer info */}
+                <div className="mt-4 space-y-2">
+                  {/* Public link */}
+                  <div className="text-sm">
+                    <div className="flex items-center gap-2 mb-1">
+                      <LinkIcon className="h-4 w-4 text-gray-400" />
+                      <span className="text-gray-600 font-medium">Public Link:</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <code className="text-xs bg-gray-100 px-2 py-2 rounded flex-1 break-all whitespace-normal select-all">
+                        {origin}{project.public_link}
+                      </code>
+                      <button
+                        onClick={() => copyLink(project.id, project.public_link)}
+                        className={`p-2 rounded transition-colors flex-shrink-0 ${
+                          copiedLink === project.id
+                            ? 'bg-green-100 text-green-600'
+                            : 'bg-gray-100 text-temetra-blue-600 hover:bg-gray-200'
+                        }`}
+                        title={copiedLink === project.id ? 'Copied!' : 'Copy to clipboard'}
+                      >
+                        {copiedLink === project.id ? (
+                          <CheckCircle className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
-                  {/* Status indicator for last upload */}
-                  <div className="text-right">
-                    {project.last_upload_status === 'valid' ? (
-                      <div className="flex items-center gap-2 text-green-600">
-                        <CheckCircle className="h-6 w-6" />
-                        <span className="text-sm font-medium">Passed</span>
-                      </div>
-                    ) : project.last_upload_status === 'invalid' ? (
-                      <div className="flex items-center gap-2 text-red-600">
-                        <XCircle className="h-6 w-6" />
-                        <span className="text-sm font-medium">Failed</span>
-                      </div>
-                    ) : project.last_upload_status === 'pending' ? (
-                      <div className="flex items-center gap-2 text-yellow-600">
-                        <AlertTriangle className="h-6 w-6" />
-                        <span className="text-sm font-medium">Pending</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 text-gray-400">
-                        <span className="text-sm">No uploads</span>
-                      </div>
-                    )}
-                    <p className="text-xs text-gray-500 mt-1">Last File Status</p>
-                  </div>
-                </div>
 
-                {/* Error counters - only show if there are errors */}
-                {(project.layout_errors || 0) + (project.data_errors || 0) > 0 && (
-                  <div className="flex gap-2 mt-3">
-                    <Link
-                      href={`/admin/projects/${project.id}/logs?error_type=layout`}
-                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        (project.layout_errors || 0) > 0
-                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                          : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      <LayoutGrid className="h-4 w-4" />
-                      <span>{project.layout_errors || 0} Layout</span>
-                    </Link>
-                    <Link
-                      href={`/admin/projects/${project.id}/logs?error_type=data`}
-                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        (project.data_errors || 0) > 0
-                          ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                          : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      <Database className="h-4 w-4" />
-                      <span>{project.data_errors || 0} Data</span>
-                    </Link>
-                  </div>
-                )}
-              </div>
-
-              {/* Footer info */}
-              <div className="mt-4 space-y-2">
-                {/* Public link */}
-                <div className="text-sm">
-                  <div className="flex items-center gap-2 mb-1">
-                    <LinkIcon className="h-4 w-4 text-gray-400" />
-                    <span className="text-gray-600 font-medium">Public Link:</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <code className="text-xs bg-gray-100 px-2 py-2 rounded flex-1 break-all whitespace-normal select-all">
-                      {origin}{project.public_link}
-                    </code>
-                    <button
-                      onClick={() => copyLink(project.id, project.public_link)}
-                      className={`p-2 rounded transition-colors flex-shrink-0 ${
-                        copiedLink === project.id
-                          ? 'bg-green-100 text-green-600'
-                          : 'bg-gray-100 text-temetra-blue-600 hover:bg-gray-200'
-                      }`}
-                      title={copiedLink === project.id ? 'Copied!' : 'Copy to clipboard'}
-                    >
-                      {copiedLink === project.id ? (
-                        <CheckCircle className="h-4 w-4" />
+                  {/* Alert status */}
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 text-gray-500">
+                      {project.alert_on_upload ? (
+                        <>
+                          <Bell className="h-4 w-4 text-green-500" />
+                          <span>Alerts enabled</span>
+                        </>
                       ) : (
-                        <Copy className="h-4 w-4" />
+                        <>
+                          <BellOff className="h-4 w-4 text-gray-400" />
+                          <span>Alerts disabled</span>
+                        </>
                       )}
-                    </button>
+                    </div>
                   </div>
+
+                  {/* Last upload */}
+                  <p className="text-xs text-gray-500">
+                    {project.last_upload
+                      ? `Last upload: ${formatDate(project.last_upload)}`
+                      : 'No uploads yet'}
+                  </p>
                 </div>
 
-                {/* Alert status */}
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2 text-gray-500">
-                    {project.alert_on_upload ? (
-                      <>
-                        <Bell className="h-4 w-4 text-green-500" />
-                        <span>Alerts enabled</span>
-                      </>
-                    ) : (
-                      <>
-                        <BellOff className="h-4 w-4 text-gray-400" />
-                        <span>Alerts disabled</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Last upload */}
-                <p className="text-xs text-gray-500">
-                  {project.last_upload
-                    ? `Last upload: ${formatDate(project.last_upload)}`
-                    : 'No uploads yet'}
-                </p>
-              </div>
-
-              {/* Action buttons */}
-              <div className="mt-4 pt-4 border-t space-y-2">
-                <Link
-                  href={`/validate/${project.slug}`}
-                  className="w-full btn-primary text-center text-sm flex items-center justify-center gap-2"
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload File to Validate
-                </Link>
-                <div className="flex gap-2">
-                  <Link
-                    href={`/admin/projects/${project.id}/logs`}
-                    className="flex-1 btn-secondary text-center text-sm"
-                  >
-                    View Logs
-                  </Link>
-                  {project.validation_template_id && (
+                {/* Action buttons */}
+                <div className="mt-4 pt-4 border-t space-y-2">
+                  {!isRetired && (
                     <Link
-                      href={`/admin/templates/${project.validation_template_id}/documents`}
-                      className="flex-1 btn-secondary text-center text-sm flex items-center justify-center gap-1"
+                      href={`/validate/${project.slug}`}
+                      className="w-full btn-primary text-center text-sm flex items-center justify-center gap-2"
                     >
-                      <FileText className="h-4 w-4" />
-                      Docs
+                      <Upload className="h-4 w-4" />
+                      Upload File to Validate
                     </Link>
                   )}
-                  <Link
-                    href={`/admin/projects/${project.id}/upload`}
-                    className="flex-1 btn-secondary text-center text-sm"
-                  >
-                    Upload Key
-                  </Link>
+                  <div className="flex gap-2">
+                    <Link
+                      href={`/admin/projects/${project.id}/logs`}
+                      className="flex-1 btn-secondary text-center text-sm"
+                    >
+                      View Logs
+                    </Link>
+                    {project.validation_template_id && (
+                      <Link
+                        href={`/admin/templates/${project.validation_template_id}/documents`}
+                        className="flex-1 btn-secondary text-center text-sm flex items-center justify-center gap-1"
+                      >
+                        <FileText className="h-4 w-4" />
+                        Docs
+                      </Link>
+                    )}
+                    <Link
+                      href={`/admin/projects/${project.id}/upload`}
+                      className="flex-1 btn-secondary text-center text-sm"
+                    >
+                      Upload Key
+                    </Link>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Empty state */}
@@ -464,6 +554,8 @@ export default function AdminProjectsPage() {
                   Clear search
                 </button>
               </>
+            ) : statusFilter === 'retired' ? (
+              <p className="text-gray-500">No retired projects.</p>
             ) : (
               <>
                 <p className="text-gray-500 mb-4">No projects yet. Create your first project to get started.</p>
