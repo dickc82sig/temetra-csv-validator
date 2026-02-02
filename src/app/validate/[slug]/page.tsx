@@ -324,8 +324,13 @@ export default function PublicValidationPage() {
     setIsSubmitting(true);
 
     try {
-      // Save the upload record to Supabase first (fast)
-      const { data: insertedRow, error } = await supabase
+      // Cap stored errors at 500 to avoid request size issues
+      const errorsToStore = validationResults?.errors
+        ? validationResults.errors.slice(0, 500)
+        : null;
+
+      // Save the upload record to Supabase
+      const { error } = await supabase
         .from('file_uploads')
         .insert({
           project_id: project.id,
@@ -337,13 +342,11 @@ export default function PublicValidationPage() {
           additional_emails: additionalEmails.length > 0 ? additionalEmails : null,
           upload_type: 'developer_submission',
           validation_status: validationResults?.isValid ? 'valid' : 'invalid',
-          errors: validationResults?.errors || null,
+          errors: errorsToStore,
           validation_summary: validationResults
             ? `${validationResults.totalRows} rows, ${validationResults.totalErrors} errors`
             : null,
-        })
-        .select('id')
-        .single();
+        });
 
       if (error) {
         console.error('Error saving upload:', error);
@@ -353,21 +356,14 @@ export default function PublicValidationPage() {
       }
 
       // Upload file to storage in the background (non-blocking)
-      if (file && insertedRow?.id) {
+      if (file) {
         const timestamp = Date.now();
         const storagePath = `${project.slug}/${timestamp}-${file.name}`;
         supabase.storage
           .from(STORAGE_BUCKETS.CSV_FILES)
           .upload(storagePath, file)
           .then(({ error: uploadError }) => {
-            if (!uploadError) {
-              // Update the record with the storage path
-              supabase
-                .from('file_uploads')
-                .update({ file_path: storagePath })
-                .eq('id', insertedRow.id)
-                .then(() => {});
-            } else {
+            if (uploadError) {
               console.error('Storage upload error:', uploadError);
             }
           });
