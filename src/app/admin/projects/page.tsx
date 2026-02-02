@@ -29,6 +29,7 @@ import {
   LayoutGrid,
   Database,
   FileText,
+  Upload,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
@@ -48,6 +49,7 @@ interface Project {
   last_upload_status?: 'valid' | 'invalid' | 'pending' | null;
   layout_errors?: number;
   data_errors?: number;
+  has_valid_upload?: boolean;
 }
 
 export default function AdminProjectsPage() {
@@ -99,6 +101,13 @@ export default function AdminProjectsPage() {
               .limit(1)
               .single();
 
+            // Check if project has ever had a valid upload
+            const { count: validCount } = await supabase
+              .from('file_uploads')
+              .select('*', { count: 'exact', head: true })
+              .eq('project_id', project.id)
+              .eq('validation_status', 'valid');
+
             // Count layout errors vs data errors from the last upload
             let layoutErrors = 0;
             let dataErrors = 0;
@@ -122,6 +131,7 @@ export default function AdminProjectsPage() {
               last_upload_status: lastUploadData?.validation_status as 'valid' | 'invalid' | 'pending' | null,
               layout_errors: layoutErrors,
               data_errors: dataErrors,
+              has_valid_upload: (validCount || 0) > 0,
             };
           })
         );
@@ -223,7 +233,12 @@ export default function AdminProjectsPage() {
         {/* Projects grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProjects.map(project => (
-            <div key={project.id} className="card hover:shadow-md transition-shadow">
+            <div key={project.id} className="card hover:shadow-md transition-shadow overflow-hidden relative">
+              {/* Validation status line across the top */}
+              <div className={`absolute top-0 left-0 right-0 h-1 ${
+                project.has_valid_upload ? 'bg-green-500' : 'bg-red-500'
+              }`} />
+
               {/* Header with menu */}
               <div className="flex items-start justify-between mb-3">
                 <div>
@@ -400,28 +415,37 @@ export default function AdminProjectsPage() {
               </div>
 
               {/* Action buttons */}
-              <div className="mt-4 pt-4 border-t flex gap-2">
+              <div className="mt-4 pt-4 border-t space-y-2">
                 <Link
-                  href={`/admin/projects/${project.id}/logs`}
-                  className="flex-1 btn-secondary text-center text-sm"
+                  href={`/validate/${project.slug}`}
+                  className="w-full btn-primary text-center text-sm flex items-center justify-center gap-2"
                 >
-                  View Logs
+                  <Upload className="h-4 w-4" />
+                  Upload File to Validate
                 </Link>
-                {project.validation_template_id && (
+                <div className="flex gap-2">
                   <Link
-                    href={`/admin/templates/${project.validation_template_id}/documents`}
-                    className="flex-1 btn-secondary text-center text-sm flex items-center justify-center gap-1"
+                    href={`/admin/projects/${project.id}/logs`}
+                    className="flex-1 btn-secondary text-center text-sm"
                   >
-                    <FileText className="h-4 w-4" />
-                    Docs
+                    View Logs
                   </Link>
-                )}
-                <Link
-                  href={`/admin/projects/${project.id}/upload`}
-                  className="flex-1 btn-primary text-center text-sm"
-                >
-                  Upload Key
-                </Link>
+                  {project.validation_template_id && (
+                    <Link
+                      href={`/admin/templates/${project.validation_template_id}/documents`}
+                      className="flex-1 btn-secondary text-center text-sm flex items-center justify-center gap-1"
+                    >
+                      <FileText className="h-4 w-4" />
+                      Docs
+                    </Link>
+                  )}
+                  <Link
+                    href={`/admin/projects/${project.id}/upload`}
+                    className="flex-1 btn-secondary text-center text-sm"
+                  >
+                    Upload Key
+                  </Link>
+                </div>
               </div>
             </div>
           ))}
