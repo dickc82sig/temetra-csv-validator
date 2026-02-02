@@ -31,7 +31,7 @@ import FileUpload from '@/components/ui/FileUpload';
 import ValidationResults from '@/components/ui/ValidationResults';
 import { validateCSV, ValidationResult } from '@/lib/csv-validator';
 import { getDefaultTemplate, dbTemplateToValidationTemplate } from '@/lib/validation-rules';
-import { supabase } from '@/lib/supabase';
+import { supabase, STORAGE_BUCKETS } from '@/lib/supabase';
 import { isValidEmail, isAlex, getGreeting } from '@/lib/utils';
 import { ValidationTemplate } from '@/types';
 
@@ -324,13 +324,30 @@ export default function PublicValidationPage() {
     setIsSubmitting(true);
 
     try {
+      // Upload the CSV file to Supabase storage
+      const timestamp = Date.now();
+      const storagePath = `${project.slug}/${timestamp}-${file?.name || 'unknown.csv'}`;
+      let finalFilePath = storagePath;
+
+      if (file) {
+        const { error: uploadError } = await supabase.storage
+          .from(STORAGE_BUCKETS.CSV_FILES)
+          .upload(storagePath, file);
+
+        if (uploadError) {
+          console.error('Storage upload error:', uploadError);
+          // Continue saving the record even if storage upload fails
+          finalFilePath = '';
+        }
+      }
+
       // Save the upload to Supabase
       const { error } = await supabase
         .from('file_uploads')
         .insert({
           project_id: project.id,
           file_name: file?.name || 'unknown.csv',
-          file_path: `/uploads/${project.slug}/${file?.name}`,
+          file_path: finalFilePath,
           file_size: file?.size || 0,
           uploaded_by_name: name,
           uploaded_by_email: email,

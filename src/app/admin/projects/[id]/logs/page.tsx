@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Download,
   Eye,
+  File,
   Loader2,
   Calendar,
   Filter,
@@ -25,7 +26,7 @@ import {
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
 import ValidationResults from '@/components/ui/ValidationResults';
-import { supabase } from '@/lib/supabase';
+import { supabase, STORAGE_BUCKETS } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
 import { ValidationError } from '@/types';
 import { ValidationResult } from '@/lib/csv-validator';
@@ -43,6 +44,7 @@ interface UploadLog {
   layoutErrors: number;
   dataErrors: number;
   validationErrors: ValidationError[];
+  filePath: string;
 }
 
 interface Project {
@@ -133,6 +135,7 @@ function ProjectLogsContent() {
               layoutErrors,
               dataErrors,
               validationErrors: rawErrors,
+              filePath: log.file_path || '',
             };
           }));
         } else {
@@ -247,6 +250,28 @@ function ProjectLogsContent() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `${log.filename.replace(/\.csv$/i, '')}-validation-report.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  /**
+   * Download the original uploaded CSV file from Supabase storage
+   */
+  const downloadOriginalFile = async (log: UploadLog) => {
+    if (!log.filePath) return;
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKETS.CSV_FILES)
+      .download(log.filePath);
+    if (error || !data) {
+      console.error('Error downloading file:', error);
+      return;
+    }
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = log.filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -469,10 +494,19 @@ function ProjectLogsContent() {
                       <button
                         onClick={() => downloadReport(log)}
                         className="p-1 text-gray-400 hover:text-temetra-blue-600"
-                        title="Download Report"
+                        title="Download Validation Report"
                       >
                         <Download className="h-4 w-4" />
                       </button>
+                      {log.filePath && (
+                        <button
+                          onClick={() => downloadOriginalFile(log)}
+                          className="p-1 text-gray-400 hover:text-green-600"
+                          title="Download Original File"
+                        >
+                          <File className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -531,10 +565,19 @@ function ProjectLogsContent() {
                 onDownloadReport={() => downloadReport(selectedLog)}
               />
             </div>
-            <div className="p-4 border-t sticky bottom-0 bg-white">
+            <div className="p-4 border-t sticky bottom-0 bg-white flex gap-3">
+              {selectedLog.filePath && (
+                <button
+                  onClick={() => downloadOriginalFile(selectedLog)}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <File className="h-4 w-4" />
+                  Download Original File
+                </button>
+              )}
               <button
                 onClick={() => setSelectedLog(null)}
-                className="btn-primary w-full"
+                className="btn-primary flex-1"
               >
                 Close
               </button>

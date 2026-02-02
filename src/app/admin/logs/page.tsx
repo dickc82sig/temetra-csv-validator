@@ -17,23 +17,30 @@ import {
   Clock,
   AlertTriangle,
   Download,
+  Eye,
+  File,
   Loader2,
   Search,
   Filter,
 } from 'lucide-react';
 import Header from '@/components/ui/Header';
-import { supabase } from '@/lib/supabase';
+import ValidationResults from '@/components/ui/ValidationResults';
+import { supabase, STORAGE_BUCKETS } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
+import { ValidationError } from '@/types';
+import { ValidationResult } from '@/lib/csv-validator';
 
 interface UploadLog {
   id: string;
   file_name: string;
+  file_path: string;
   project_id: string;
   project_name: string;
   uploaded_by_email: string;
   uploaded_at: string;
   validation_status: string;
   validation_summary: string | null;
+  validationErrors: ValidationError[];
 }
 
 function AdminLogsContent() {
@@ -44,6 +51,7 @@ function AdminLogsContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(initialStatus);
+  const [selectedLog, setSelectedLog] = useState<UploadLog | null>(null);
 
   // Load logs
   useEffect(() => {
@@ -63,7 +71,7 @@ function AdminLogsContent() {
       // Get all uploads
       const { data: uploadsData, error } = await supabase
         .from('file_uploads')
-        .select('id, file_name, project_id, uploaded_by_email, uploaded_at, validation_status, validation_summary')
+        .select('id, file_name, file_path, project_id, uploaded_by_email, uploaded_at, validation_status, validation_summary, errors')
         .order('uploaded_at', { ascending: false });
 
       if (error) {
@@ -83,8 +91,16 @@ function AdminLogsContent() {
         const projectMap = new Map(projectsData?.map(p => [p.id, p.name]) || []);
 
         setLogs(uploadsData.map(log => ({
-          ...log,
+          id: log.id,
+          file_name: log.file_name,
+          file_path: log.file_path || '',
+          project_id: log.project_id,
           project_name: projectMap.get(log.project_id) || 'Unknown Project',
+          uploaded_by_email: log.uploaded_by_email,
+          uploaded_at: log.uploaded_at,
+          validation_status: log.validation_status,
+          validation_summary: log.validation_summary,
+          validationErrors: (log.errors && Array.isArray(log.errors)) ? log.errors : [],
         })));
       } else {
         setLogs([]);
@@ -138,6 +154,79 @@ function AdminLogsContent() {
       pending: 'bg-yellow-100 text-yellow-700',
     };
     return classes[status] || 'bg-gray-100 text-gray-700';
+  };
+
+  /**
+   * Reconstruct a ValidationResult from stored log data
+   */
+  const buildValidationResult = (log: UploadLog): ValidationResult => {
+    const errors = log.validationErrors || [];
+    const missingColumns = errors.filter(e => e.rule === 'missing_column').map(e => e.column);
+    const extraColumns = errors.filter(e => e.rule === 'extra_column').map(e => e.column);
+    const totalErrors = errors.filter(e => e.severity === 'error').length;
+    const totalWarnings = errors.filter(e => e.severity === 'warning').length;
+
+    let totalRows = 0;
+    if (log.validation_summary) {
+      const rowsMatch = log.validation_summary.match(/(\d+)\s*rows?/i);
+      if (rowsMatch) totalRows = parseInt(rowsMatch[1], 10);
+    }
+
+    return {
+      isValid: log.validation_status === 'valid',
+      totalRows,
+      totalErrors,
+      totalWarnings,
+      errors,
+      summary: `${totalRows} rows checked. ${totalErrors} errors, ${totalWarnings} warnings found.`,
+      columnMatches: missingColumns.length === 0,
+      missingColumns,
+      extraColumns,
+    };
+  };
+
+  /**
+   * Generate and download a CSV validation report
+   */
+  const downloadReport = (log: UploadLog) => {
+    const errors = log.validationErrors || [];
+    const lines: string[] = [];
+    lines.push('Row,Column,Severity,Rule,Message,Value');
+    errors.forEach(e => {
+      const escapeCsv = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
+      lines.push([e.row, escapeCsv(e.column), e.severity, escapeCsv(e.rule), escapeCsv(e.message), escapeCsv(e.value)].join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${log.file_name.replace(/\.csv$/i, '')}-validation-report.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  /**
+   * Download the original uploaded CSV file from Supabase storage
+   */
+  const downloadOriginalFile = async (log: UploadLog) => {
+    if (!log.file_path) return;
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKETS.CSV_FILES)
+      .download(log.file_path);
+    if (error || !data) {
+      console.error('Error downloading file:', error);
+      return;
+    }
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = log.file_name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   if (isLoading) {
@@ -234,6 +323,7 @@ function AdminLogsContent() {
                   <th className="px-6 py-3 font-medium">Status</th>
                   <th className="px-6 py-3 font-medium">Date</th>
                   <th className="px-6 py-3 font-medium">Summary</th>
+                  <th className="px-6 py-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -266,6 +356,35 @@ function AdminLogsContent() {
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {log.validation_summary || '—'}
                     </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setSelectedLog(log)}
+                          className="p-1 text-gray-400 hover:text-temetra-blue-600"
+                          title="View Validation Results"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        {log.validationErrors.length > 0 && (
+                          <button
+                            onClick={() => downloadReport(log)}
+                            className="p-1 text-gray-400 hover:text-temetra-blue-600"
+                            title="Download Validation Report"
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+                        )}
+                        {log.file_path && (
+                          <button
+                            onClick={() => downloadOriginalFile(log)}
+                            className="p-1 text-gray-400 hover:text-green-600"
+                            title="Download Original File"
+                          >
+                            <File className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -290,6 +409,53 @@ function AdminLogsContent() {
           )}
         </div>
       </main>
+
+      {/* Detail modal */}
+      {selectedLog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div className="p-6 border-b sticky top-0 bg-white z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">{selectedLog.file_name}</h3>
+                  <p className="text-sm text-gray-500">
+                    {selectedLog.project_name} &bull; Uploaded by {selectedLog.uploaded_by_email} on {formatDate(selectedLog.uploaded_at)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedLog(null)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                >
+                  &times;
+                </button>
+              </div>
+            </div>
+            <div className="p-6">
+              <ValidationResults
+                results={buildValidationResult(selectedLog)}
+                onDownloadReport={() => downloadReport(selectedLog)}
+              />
+            </div>
+            <div className="p-4 border-t sticky bottom-0 bg-white flex gap-3">
+              {selectedLog.file_path && (
+                <button
+                  onClick={() => downloadOriginalFile(selectedLog)}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <File className="h-4 w-4" />
+                  Download Original File
+                </button>
+              )}
+              <button
+                onClick={() => setSelectedLog(null)}
+                className="btn-primary flex-1"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="border-t mt-12 py-6 text-center text-sm text-gray-500">
