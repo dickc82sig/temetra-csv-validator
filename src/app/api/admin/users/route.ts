@@ -133,22 +133,43 @@ export async function PATCH(request: Request) {
       );
     }
 
+    // Look up the user's email from users table
+    const { data: userData, error: lookupError } = await supabaseAdmin
+      .from('users')
+      .select('email')
+      .eq('id', userId)
+      .single();
+
+    if (lookupError || !userData) {
+      return NextResponse.json(
+        { error: 'User not found in users table' },
+        { status: 404 }
+      );
+    }
+
+    // Find the matching auth user by email (IDs may not match for older users)
+    const { data: authList, error: authListError } = await supabaseAdmin.auth.admin.listUsers();
+
+    if (authListError) {
+      console.error('Error listing auth users:', authListError);
+      return NextResponse.json(
+        { error: 'Failed to look up auth user' },
+        { status: 500 }
+      );
+    }
+
+    const authUser = authList.users.find(
+      (u) => u.email?.toLowerCase() === userData.email.toLowerCase()
+    );
+
+    if (!authUser) {
+      return NextResponse.json(
+        { error: `No auth account found for ${userData.email}. The user may need to be re-created.` },
+        { status: 404 }
+      );
+    }
+
     if (action === 'send_reset_email') {
-      // Look up the user's email
-      const { data: userData, error: lookupError } = await supabaseAdmin
-        .from('users')
-        .select('email')
-        .eq('id', userId)
-        .single();
-
-      if (lookupError || !userData) {
-        return NextResponse.json(
-          { error: 'User not found' },
-          { status: 404 }
-        );
-      }
-
-      // Send password reset email via Supabase Auth
       const { error: resetError } = await supabaseAdmin.auth.resetPasswordForEmail(
         userData.email
       );
@@ -175,9 +196,9 @@ export async function PATCH(request: Request) {
         );
       }
 
-      // Update the user's password via Supabase Admin Auth
+      // Use the auth user's actual ID for the update
       const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-        userId,
+        authUser.id,
         { password }
       );
 
