@@ -531,7 +531,7 @@ export default function TemplateEditPage() {
     <div className="min-h-screen bg-gray-50">
       <Header isLoggedIn={true} userName="Admin" userRole="admin" />
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      <main className={`max-w-7xl mx-auto px-4 py-8 ${editingRule ? 'pb-24' : ''}`}>
         {/* Back link */}
         <Link
           href="/admin/templates"
@@ -982,6 +982,49 @@ export default function TemplateEditPage() {
           </button>
         </div>
       </main>
+
+      {/* Sticky bottom bar when editing a rule */}
+      {editingRule && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg z-40">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div className="text-sm text-gray-600">
+              Editing: <span className="font-medium">{(editedRules[editingRule] || template.rules.find(r => r.id === editingRule))?.column_name}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setEditingRule(null);
+                  const newEdited = { ...editedRules };
+                  delete newEdited[editingRule];
+                  setEditedRules(newEdited);
+                }}
+                disabled={isSaving}
+                className="btn-secondary text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+                Cancel
+              </button>
+              <button
+                onClick={() => saveRuleAndClose(editingRule)}
+                disabled={isSaving}
+                className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Save Rule
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Help Modal */}
       {showHelp && (
