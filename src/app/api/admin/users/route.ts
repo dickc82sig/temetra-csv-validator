@@ -112,3 +112,98 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export async function PATCH(request: Request) {
+  try {
+    const supabaseAdmin = getSupabaseAdmin();
+    const body = await request.json();
+    const { userId, action, password } = body;
+
+    if (!userId || !action) {
+      return NextResponse.json(
+        { error: 'userId and action are required' },
+        { status: 400 }
+      );
+    }
+
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json(
+        { error: 'Server configuration error. Please contact administrator.' },
+        { status: 500 }
+      );
+    }
+
+    if (action === 'send_reset_email') {
+      // Look up the user's email
+      const { data: userData, error: lookupError } = await supabaseAdmin
+        .from('users')
+        .select('email')
+        .eq('id', userId)
+        .single();
+
+      if (lookupError || !userData) {
+        return NextResponse.json(
+          { error: 'User not found' },
+          { status: 404 }
+        );
+      }
+
+      // Send password reset email via Supabase Auth
+      const { error: resetError } = await supabaseAdmin.auth.resetPasswordForEmail(
+        userData.email
+      );
+
+      if (resetError) {
+        console.error('Password reset email error:', resetError);
+        return NextResponse.json(
+          { error: `Failed to send reset email: ${resetError.message}` },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Password reset email sent to ${userData.email}`,
+      });
+    }
+
+    if (action === 'set_password') {
+      if (!password || password.length < 6) {
+        return NextResponse.json(
+          { error: 'Password must be at least 6 characters' },
+          { status: 400 }
+        );
+      }
+
+      // Update the user's password via Supabase Admin Auth
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+        userId,
+        { password }
+      );
+
+      if (updateError) {
+        console.error('Password update error:', updateError);
+        return NextResponse.json(
+          { error: `Failed to update password: ${updateError.message}` },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Password updated successfully',
+      });
+    }
+
+    return NextResponse.json(
+      { error: 'Invalid action. Use "send_reset_email" or "set_password"' },
+      { status: 400 }
+    );
+  } catch (error) {
+    console.error('Password reset error:', error);
+    return NextResponse.json(
+      { error: 'An unexpected error occurred' },
+      { status: 500 }
+    );
+  }
+}

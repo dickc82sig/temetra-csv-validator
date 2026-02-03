@@ -29,6 +29,7 @@ import {
 import Header from '@/components/ui/Header';
 import { supabase } from '@/lib/supabase';
 import { formatDate, isAlex } from '@/lib/utils';
+import { validatePassword, getPasswordErrors } from '@/lib/password-utils';
 
 interface UserData {
   id: string;
@@ -62,6 +63,13 @@ export default function AdminUsersPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetUser, setResetUser] = useState<UserData | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   // Form state for add/edit
   const [formData, setFormData] = useState({
@@ -289,6 +297,86 @@ export default function AdminUsersPage() {
     setOpenMenu(null);
   };
 
+  /**
+   * Open reset password modal for a user
+   */
+  const openResetModal = (user: UserData) => {
+    setResetUser(user);
+    setResetPassword('');
+    setResetMessage('');
+    setResetError('');
+    setShowResetPassword(false);
+    setShowResetModal(true);
+    setOpenMenu(null);
+  };
+
+  /**
+   * Send password reset email
+   */
+  const handleSendResetEmail = async () => {
+    if (!resetUser) return;
+    setIsResetting(true);
+    setResetError('');
+    setResetMessage('');
+
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: resetUser.id, action: 'send_reset_email' }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        setResetError(result.error || 'Failed to send reset email');
+      } else {
+        setResetMessage(`Password reset email sent to ${resetUser.email}`);
+      }
+    } catch {
+      setResetError('An unexpected error occurred');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  /**
+   * Set password manually
+   */
+  const handleSetPassword = async () => {
+    if (!resetUser) return;
+    setResetError('');
+    setResetMessage('');
+
+    const validation = validatePassword(resetPassword);
+    if (!validation.isValid) {
+      const errors = getPasswordErrors(validation);
+      setResetError(errors.join(', '));
+      return;
+    }
+
+    setIsResetting(true);
+
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: resetUser.id, action: 'set_password', password: resetPassword }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        setResetError(result.error || 'Failed to update password');
+      } else {
+        setResetMessage('Password updated successfully');
+        setResetPassword('');
+      }
+    } catch {
+      setResetError('An unexpected error occurred');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header isLoggedIn={true} userName="Admin" userRole="admin" />
@@ -428,6 +516,13 @@ export default function AdminUsersPage() {
                                 >
                                   <Edit className="h-4 w-4" />
                                   Edit User
+                                </button>
+                                <button
+                                  onClick={() => openResetModal(user)}
+                                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-amber-50"
+                                >
+                                  <Key className="h-4 w-4" />
+                                  Reset Password
                                 </button>
                                 <button
                                   onClick={() => handleToggleActive(user)}
@@ -684,6 +779,119 @@ export default function AdminUsersPage() {
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Edit className="h-4 w-4" />}
                 {isSubmitting ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {showResetModal && resetUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Reset Password</h2>
+              <button onClick={() => setShowResetModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+              <p className="font-medium text-gray-900">{resetUser.name}</p>
+              <p className="text-sm text-gray-500">{resetUser.email}</p>
+            </div>
+
+            {resetError && (
+              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                {resetError}
+              </div>
+            )}
+
+            {resetMessage && (
+              <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+                {resetMessage}
+              </div>
+            )}
+
+            <div className="space-y-5">
+              {/* Option 1: Send Reset Email */}
+              <div className="border rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">Option 1: Send Reset Email</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  Send a password reset link to the user&apos;s email address.
+                </p>
+                <button
+                  onClick={handleSendResetEmail}
+                  disabled={isResetting}
+                  className="btn-secondary flex items-center gap-2 text-sm"
+                >
+                  {isResetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                  Send Reset Email
+                </button>
+              </div>
+
+              {/* Option 2: Set Password Manually */}
+              <div className="border rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">Option 2: Set Password Manually</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  Enter a new password directly. Share it with the user securely.
+                </p>
+                <div className="relative mb-3">
+                  <input
+                    type={showResetPassword ? 'text' : 'password'}
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                    className="input-field pr-10"
+                    placeholder="New password (min 12 characters)"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowResetPassword(!showResetPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                  >
+                    {showResetPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
+                {resetPassword && (
+                  <div className="mb-3 text-xs space-y-1">
+                    {(() => {
+                      const v = validatePassword(resetPassword);
+                      return (
+                        <>
+                          <p className={v.minLength ? 'text-green-600' : 'text-gray-400'}>
+                            {v.minLength ? '\u2713' : '\u2717'} Min 12 characters
+                          </p>
+                          <p className={v.hasUppercase ? 'text-green-600' : 'text-gray-400'}>
+                            {v.hasUppercase ? '\u2713' : '\u2717'} Uppercase letter
+                          </p>
+                          <p className={v.hasLowercase ? 'text-green-600' : 'text-gray-400'}>
+                            {v.hasLowercase ? '\u2713' : '\u2717'} Lowercase letter
+                          </p>
+                          <p className={v.hasNumber ? 'text-green-600' : 'text-gray-400'}>
+                            {v.hasNumber ? '\u2713' : '\u2717'} Number
+                          </p>
+                          <p className={v.hasSpecial ? 'text-green-600' : 'text-gray-400'}>
+                            {v.hasSpecial ? '\u2713' : '\u2717'} Special character
+                          </p>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+                <button
+                  onClick={handleSetPassword}
+                  disabled={isResetting || !resetPassword}
+                  className="btn-primary flex items-center gap-2 text-sm"
+                >
+                  {isResetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Key className="h-4 w-4" />}
+                  Update Password
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button onClick={() => setShowResetModal(false)} className="btn-secondary">
+                Close
               </button>
             </div>
           </div>
