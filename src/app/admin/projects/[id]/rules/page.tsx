@@ -383,7 +383,7 @@ export default function ProjectRulesPage() {
     <div className="min-h-screen bg-gray-50">
       <Header isLoggedIn={true} userName="Admin" userRole="admin" />
 
-      <main className={`max-w-7xl mx-auto px-4 py-8 ${editingRule || hasChanges ? 'pb-24' : ''}`}>
+      <main className="max-w-7xl mx-auto px-4 py-8 pb-24">
         {/* Back link */}
         <Link
           href={`/admin/projects/${projectId}`}
@@ -929,57 +929,55 @@ export default function ProjectRulesPage() {
         </div>
       )}
 
-      {/* Sticky bottom bar when editing or has changes */}
-      {(editingRule || hasChanges) && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999 }} className="bg-white border-t-2 border-temetra-blue-600 shadow-2xl">
-          <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-            <div className="text-sm text-gray-700">
-              {editingRule ? (
+      {/* Sticky bottom bar - always visible */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999 }} className="bg-white border-t-2 border-temetra-blue-600 shadow-2xl">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="text-sm text-gray-700">
+            {editingRule ? (
+              <>
+                Editing: <span className="font-medium text-temetra-blue-600">{(editedRules[editingRule] || rules.find(r => r.id === editingRule))?.column_name}</span>
+              </>
+            ) : hasChanges ? (
+              <span className="font-medium">{Object.keys(editedRules).length} unsaved change(s)</span>
+            ) : (
+              <span className="text-gray-500">Click a row to edit validation rules</span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {editingRule && (
+              <button
+                onClick={() => {
+                  setEditingRule(null);
+                  const newEdited = { ...editedRules };
+                  delete newEdited[editingRule];
+                  setEditedRules(newEdited);
+                }}
+                className="btn-secondary text-sm flex items-center gap-2"
+              >
+                <X className="h-4 w-4" />
+                Cancel Edit
+              </button>
+            )}
+            <button
+              onClick={handleSaveClick}
+              disabled={isSaving || !hasChanges}
+              className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+            >
+              {isSaving ? (
                 <>
-                  Editing: <span className="font-medium text-temetra-blue-600">{(editedRules[editingRule] || rules.find(r => r.id === editingRule))?.column_name}</span>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving...
                 </>
               ) : (
-                <span className="font-medium">{Object.keys(editedRules).length} unsaved change(s)</span>
+                <>
+                  <Save className="h-4 w-4" />
+                  Save as New Template
+                </>
               )}
-            </div>
-            <div className="flex items-center gap-3">
-              {editingRule && (
-                <button
-                  onClick={() => {
-                    setEditingRule(null);
-                    const newEdited = { ...editedRules };
-                    delete newEdited[editingRule];
-                    setEditedRules(newEdited);
-                  }}
-                  className="btn-secondary text-sm flex items-center gap-2"
-                >
-                  <X className="h-4 w-4" />
-                  Cancel Edit
-                </button>
-              )}
-              {hasChanges && (
-                <button
-                  onClick={handleSaveClick}
-                  disabled={isSaving}
-                  className="btn-primary text-sm flex items-center gap-2"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4" />
-                      Save as New Template
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Footer */}
       <footer className="border-t mt-12 py-6 text-center text-sm text-gray-500">
