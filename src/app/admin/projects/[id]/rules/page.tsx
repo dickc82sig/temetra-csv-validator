@@ -74,6 +74,7 @@ export default function ProjectRulesPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [editingRule, setEditingRule] = useState<string | null>(null);
   const [editedRules, setEditedRules] = useState<Record<string, TemplateRule>>({});
+  const [deletedRuleIds, setDeletedRuleIds] = useState<string[]>([]);
   const [showHelp, setShowHelp] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
@@ -164,6 +165,7 @@ export default function ProjectRulesPage() {
         setCurrentTemplateName(templateData.name);
         setRules(templateData.rules || []);
         setEditedRules({});
+        setDeletedRuleIds([]);
         setEditingRule(null);
         setMessage({ type: 'success', text: `Switched to template "${templateData.name}"` });
         setTimeout(() => setMessage(null), 3000);
@@ -207,6 +209,11 @@ export default function ProjectRulesPage() {
 
   // Remove a rule
   const removeRule = (ruleId: string) => {
+    // Track deletion only for existing rules (not newly added ones)
+    if (!ruleId.startsWith('rule-')) {
+      setDeletedRuleIds(prev => [...prev, ruleId]);
+    }
+
     setRules(prev => prev.filter(r => r.id !== ruleId));
     const newEdited = { ...editedRules };
     delete newEdited[ruleId];
@@ -309,6 +316,7 @@ export default function ProjectRulesPage() {
         setCurrentTemplateName(newTemplate.name);
         setRules(updatedRules);
         setEditedRules({});
+        setDeletedRuleIds([]);
         setEditingRule(null);
 
         // Add new template to dropdown
@@ -330,7 +338,7 @@ export default function ProjectRulesPage() {
     }
   };
 
-  const hasChanges = Object.keys(editedRules).length > 0;
+  const hasChanges = Object.keys(editedRules).length > 0 || deletedRuleIds.length > 0;
 
   const getColorIndicators = (rule: TemplateRule): string[] => {
     const colors: string[] = [];

@@ -78,6 +78,7 @@ export default function TemplateEditPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [editingRule, setEditingRule] = useState<string | null>(null);
   const [editedRules, setEditedRules] = useState<Record<string, TemplateRule>>({});
+  const [deletedRuleIds, setDeletedRuleIds] = useState<string[]>([]);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
@@ -251,6 +252,7 @@ export default function TemplateEditPage() {
       }
 
       setEditedRules({});
+      setDeletedRuleIds([]);
       setEditingRule(null);
 
       // Notify affected projects about the template update
@@ -313,6 +315,11 @@ export default function TemplateEditPage() {
 
   const deleteRule = (ruleId: string) => {
     if (!template) return;
+
+    // Track deletion only for existing rules (not newly added ones)
+    if (!ruleId.startsWith('rule-')) {
+      setDeletedRuleIds(prev => [...prev, ruleId]);
+    }
 
     setTemplate(prev => prev ? {
       ...prev,
@@ -525,7 +532,7 @@ export default function TemplateEditPage() {
     );
   }
 
-  const hasChanges = Object.keys(editedRules).length > 0;
+  const hasChanges = Object.keys(editedRules).length > 0 || deletedRuleIds.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
