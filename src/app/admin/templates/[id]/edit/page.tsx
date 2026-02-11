@@ -316,10 +316,8 @@ export default function TemplateEditPage() {
   const deleteRule = (ruleId: string) => {
     if (!template) return;
 
-    // Track deletion only for existing rules (not newly added ones)
-    if (!ruleId.startsWith('rule-')) {
-      setDeletedRuleIds(prev => [...prev, ruleId]);
-    }
+    // Track deletion to enable save button
+    setDeletedRuleIds(prev => [...prev, ruleId]);
 
     setTemplate(prev => prev ? {
       ...prev,

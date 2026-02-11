@@ -209,10 +209,8 @@ export default function ProjectRulesPage() {
 
   // Remove a rule
   const removeRule = (ruleId: string) => {
-    // Track deletion only for existing rules (not newly added ones)
-    if (!ruleId.startsWith('rule-')) {
-      setDeletedRuleIds(prev => [...prev, ruleId]);
-    }
+    // Track deletion to enable save button
+    setDeletedRuleIds(prev => [...prev, ruleId]);
 
     setRules(prev => prev.filter(r => r.id !== ruleId));
     const newEdited = { ...editedRules };
