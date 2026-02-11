@@ -531,7 +531,7 @@ export default function TemplateEditPage() {
     <div className="min-h-screen bg-gray-50">
       <Header isLoggedIn={true} userName="Admin" userRole="admin" />
 
-      <main className={`max-w-7xl mx-auto px-4 py-8 ${editingRule ? 'pb-24' : ''}`}>
+      <main className={`max-w-7xl mx-auto px-4 py-8 ${editingRule || hasChanges ? 'pb-24' : ''}`}>
         {/* Back link */}
         <Link
           href="/admin/templates"
@@ -983,44 +983,72 @@ export default function TemplateEditPage() {
         </div>
       </main>
 
-      {/* Sticky bottom bar when editing a rule */}
-      {editingRule && (
+      {/* Sticky bottom bar when editing or has changes */}
+      {(editingRule || hasChanges) && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999 }} className="bg-white border-t-2 border-temetra-blue-600 shadow-2xl">
           <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-            <div className="text-sm text-gray-700 font-medium">
-              Editing: <span className="text-temetra-blue-600">{(editedRules[editingRule] || template.rules.find(r => r.id === editingRule))?.column_name}</span>
+            <div className="text-sm text-gray-700">
+              {editingRule ? (
+                <>
+                  Editing: <span className="font-medium text-temetra-blue-600">{(editedRules[editingRule] || template.rules.find(r => r.id === editingRule))?.column_name}</span>
+                </>
+              ) : (
+                <span className="font-medium">{Object.keys(editedRules).length} unsaved change(s)</span>
+              )}
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => {
-                  setEditingRule(null);
-                  const newEdited = { ...editedRules };
-                  delete newEdited[editingRule];
-                  setEditedRules(newEdited);
-                }}
-                disabled={isSaving}
-                className="btn-secondary text-sm flex items-center gap-2 disabled:opacity-50"
-              >
-                <X className="h-4 w-4" />
-                Cancel
-              </button>
-              <button
-                onClick={() => saveRuleAndClose(editingRule)}
-                disabled={isSaving}
-                className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
-              >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4" />
-                    Save Rule
-                  </>
-                )}
-              </button>
+              {editingRule && (
+                <button
+                  onClick={() => {
+                    setEditingRule(null);
+                    const newEdited = { ...editedRules };
+                    delete newEdited[editingRule];
+                    setEditedRules(newEdited);
+                  }}
+                  disabled={isSaving}
+                  className="btn-secondary text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" />
+                  Cancel Edit
+                </button>
+              )}
+              {editingRule ? (
+                <button
+                  onClick={() => saveRuleAndClose(editingRule)}
+                  disabled={isSaving}
+                  className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save Rule
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={saveChanges}
+                  disabled={isSaving}
+                  className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save All Changes
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

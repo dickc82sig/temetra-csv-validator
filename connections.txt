@@ -1,0 +1,70 @@
+TEMETRA CSV VALIDATOR - SESSION NOTES & CONNECTIONS
+====================================================
+
+PROJECT
+-------
+- Name: temetra-csv-validator
+- Local path: /Users/rhall/temetra-csv-validator
+- Framework: Next.js 14.2.35
+- Node version: 24.x
+
+GITHUB
+------
+- Repo: dickc82sig/temetra-csv-validator (public)
+- Branch: main
+- URL: https://github.com/dickc82sig/temetra-csv-validator
+
+VERCEL
+------
+- Project: temetra-csv-validator
+- Team/Scope: richard-halls-projects-1b3b8a47
+- Plan: Hobby (free)
+- Production URL: https://temetra-csv-validator.vercel.app
+- Deploy hook (main branch): https://api.vercel.com/v1/integrations/deploy/prj_aqDphRytrdra7sHZDh3B1Jg2EIBl/qoe0ofLUkh
+- Cron: /api/chat/digest runs daily at midnight UTC (0 0 * * *)
+  - Note: Changed from */15 * * * * to daily due to Hobby plan limits
+
+CLI TOOLS
+---------
+- gh CLI: /Users/rhall/.local/bin/gh (v2.86.0)
+- vercel CLI: /Users/rhall/.local/node_modules/.bin/vercel (v50.9.6)
+- PATH needed: export PATH="/Users/rhall/.local/bin:/Users/rhall/.local/node_modules/.bin:$PATH"
+- Both CLIs are authenticated (gh as dickc82sig, vercel as richard-halls-projects-1b3b8a47)
+
+AI PROVIDER
+-----------
+- Provider: Google Gemini (gemini-2.0-flash)
+- SDK: @google/generative-ai
+- API route: /api/admin/ai-rule (src/app/api/admin/ai-rule/route.ts)
+- Env var: GOOGLE_GENERATIVE_AI_KEY (set in Vercel, production)
+- Note: Migrated from Claude (@anthropic-ai/sdk) to Gemini in this session
+
+ENVIRONMENT VARIABLES (Vercel)
+------------------------------
+- GOOGLE_GENERATIVE_AI_KEY (set - production)
+- SUPABASE_SERVICE_ROLE_KEY (set)
+- VERCEL_OIDC_TOKEN (set)
+- NEXT_PUBLIC_APP_URL (removed)
+- NEXT_PUBLIC_DEMO_MODE (removed)
+
+APP ROUTES
+----------
+Static pages:
+  / (home), /about, /admin, /admin/logs, /admin/projects,
+  /admin/projects/new, /admin/templates, /admin/templates/new,
+  /admin/users, /developer, /developer/history,
+  /forgot-password, /help, /settings, /signup
+
+Dynamic pages:
+  /admin/projects/[id], /admin/projects/[id]/edit,
+  /admin/projects/[id]/logs, /admin/projects/[id]/rules,
+  /admin/projects/[id]/upload, /admin/templates/[id]/documents,
+  /admin/templates/[id]/edit, /validate/[slug]
+
+API routes:
+  /api/admin/ai-rule, /api/admin/users, /api/chat/digest
+
+SESSION HISTORY
+---------------
+- Previous session: Attempted GitHub-to-Vercel deployment, failed. Project was deleted and recreated, still did not work.
+- This session: Installed gh and vercel CLIs locally, authenticated both, fixed cron schedule for Hobby plan compatibility, deployed successfully to production. Migrated AI provider from Claude to Google Gemini (gemini-2.0-flash), added GOOGLE_GENERATIVE_AI_KEY to Vercel env vars, redeployed.
